@@ -14,7 +14,7 @@
 ARG PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:21.04-py3
 FROM ${PYTORCH_IMAGE}
 
-LABEL maintainer="monai.contact@gmail.com"
+LABEL maintainer="matthew.antalek@gmail.com"
 
 WORKDIR /opt/monai
 
@@ -49,3 +49,7 @@ RUN apt-get update \
 # append /opt/tools to runtime path for NGC CLI to be accessible from all file system locations
 ENV PATH=${PATH}:/opt/tools
 WORKDIR /opt/monai
+COPY ./docker-entrypoint.sh /
+RUN ["chmod", "+x", "/docker-entrypoint.sh"]
+ENTRYPOINT [ "/bin/bash", "/docker-entrypoint.sh" ]
+CMD ["Docker"]
