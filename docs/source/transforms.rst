@@ -53,12 +53,17 @@ Generic Interfaces
 .. autoclass:: Decollated
     :members:
 
-
 Vanilla Transforms
 ------------------
 
 Crop and Pad
 ^^^^^^^^^^^^
+
+`Pad`
+"""""
+.. autoclass:: Pad
+    :members:
+    :special-members: __call__
 
 `SpatialPad`
 """"""""""""
@@ -117,6 +122,12 @@ Crop and Pad
 `RandCropByPosNegLabel`
 """""""""""""""""""""""
 .. autoclass:: RandCropByPosNegLabel
+    :members:
+    :special-members: __call__
+
+`RandCropByLabelClasses`
+""""""""""""""""""""""""
+.. autoclass:: RandCropByLabelClasses
     :members:
     :special-members: __call__
 
@@ -268,41 +279,64 @@ Intensity
     :special-members: __call__
 
 `RandHistogramShift`
-"""""""""""""""""""""
+""""""""""""""""""""
 .. autoclass:: RandHistogramShift
     :members:
     :special-members: __call__
 
 `DetectEnvelope`
-"""""""""""""""""""""
+""""""""""""""""
 .. autoclass:: DetectEnvelope
     :members:
     :special-members: __call__
 
 `GibbsNoise`
-""""""""""""""
+""""""""""""
 .. autoclass:: GibbsNoise
     :members:
     :special-members: __call__
 
 `RandGibbsNoise`
-"""""""""""""""""
+""""""""""""""""
 .. autoclass:: RandGibbsNoise
     :members:
     :special-members: __call__
 
 `KSpaceSpikeNoise`
-""""""""""""""""""""
+""""""""""""""""""
 .. autoclass:: KSpaceSpikeNoise
     :members:
     :special-members: __call__
 
 `RandKSpaceSpikeNoise`
-""""""""""""""""""""""""
+""""""""""""""""""""""
  .. autoclass:: RandKSpaceSpikeNoise
      :members:
      :special-members: __call__
 
+`RandCoarseTransform`
+"""""""""""""""""""""
+ .. autoclass:: RandCoarseTransform
+     :members:
+     :special-members: __call__
+
+`RandCoarseDropout`
+"""""""""""""""""""
+ .. autoclass:: RandCoarseDropout
+     :members:
+     :special-members: __call__
+
+`RandCoarseShuffle`
+"""""""""""""""""""
+ .. autoclass:: RandCoarseShuffle
+     :members:
+     :special-members: __call__
+
+`HistogramNormalize`
+""""""""""""""""""""
+ .. autoclass:: HistogramNormalize
+     :members:
+     :special-members: __call__
 
 IO
 ^^
@@ -318,6 +352,35 @@ IO
 .. autoclass:: SaveImage
     :members:
     :special-members: __call__
+
+
+NVIDIA Tool Extension (NVTX)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+`RangePush`
+"""""""""""
+.. autoclass:: RangePush
+
+`RandRangePush`
+"""""""""""""""
+.. autoclass:: RandRangePush
+
+`RangePop`
+""""""""""
+.. autoclass:: RangePop
+
+`RandRangePop`
+""""""""""""""
+.. autoclass:: RandRangePop
+
+`Mark`
+""""""
+.. autoclass:: Mark
+
+`RandMark`
+""""""""""
+.. autoclass:: RandMark
+
 
 Post-processing
 ^^^^^^^^^^^^^^^
@@ -337,6 +400,18 @@ Post-processing
 `KeepLargestConnectedComponent`
 """""""""""""""""""""""""""""""
 .. autoclass:: KeepLargestConnectedComponent
+    :members:
+    :special-members: __call__
+
+`LabelFilter`
+"""""""""""""
+.. autoclass:: LabelFilter
+    :members:
+    :special-members: __call__
+
+`FillHoles`
+"""""""""""
+.. autoclass:: FillHoles
     :members:
     :special-members: __call__
 
@@ -592,6 +667,12 @@ Utility
     :members:
     :special-members: __call__
 
+`RandLambda`
+""""""""""""
+.. autoclass:: RandLambda
+    :members:
+    :special-members: __call__
+
 `LabelToMask`
 """""""""""""
 .. autoclass:: LabelToMask
@@ -601,6 +682,12 @@ Utility
 `FgBgToIndices`
 """""""""""""""
 .. autoclass:: FgBgToIndices
+    :members:
+    :special-members: __call__
+
+`ClassesToIndices`
+""""""""""""""""""
+.. autoclass:: ClassesToIndices
     :members:
     :special-members: __call__
 
@@ -627,6 +714,25 @@ Utility
 .. autoclass:: MapLabelValue
     :members:
     :special-members: __call__
+
+`EnsureType`
+""""""""""""
+.. autoclass:: EnsureType
+    :members:
+    :special-members: __call__
+
+`IntensityStats`
+""""""""""""""""
+ .. autoclass:: IntensityStats
+     :members:
+     :special-members: __call__
+
+`ToDevice`
+""""""""""
+ .. autoclass:: ToDevice
+     :members:
+     :special-members: __call__
+
 
 Dictionary Transforms
 ---------------------
@@ -694,6 +800,12 @@ Crop and Pad (Dict)
     :members:
     :special-members: __call__
 
+`RandCropByLabelClassesd`
+"""""""""""""""""""""""""
+.. autoclass:: RandCropByLabelClassesd
+    :members:
+    :special-members: __call__
+
 `ResizeWithPadOrCropd`
 """"""""""""""""""""""
 .. autoclass:: ResizeWithPadOrCropd
@@ -718,8 +830,8 @@ Crop and Pad (Dict)
     :members:
     :special-members: __call__
 
-Instensity (Dict)
-^^^^^^^^^^^^^^^^^
+Intensity (Dict)
+^^^^^^^^^^^^^^^^
 
 `RandGaussianNoised`
 """"""""""""""""""""
@@ -865,6 +977,25 @@ Instensity (Dict)
     :members:
     :special-members: __call__
 
+`RandCoarseDropoutd`
+""""""""""""""""""""
+.. autoclass:: RandCoarseDropoutd
+    :members:
+    :special-members: __call__
+
+`RandCoarseShuffled`
+""""""""""""""""""""
+.. autoclass:: RandCoarseShuffled
+    :members:
+    :special-members: __call__
+
+`HistogramNormalized`
+"""""""""""""""""""""
+ .. autoclass:: HistogramNormalized
+     :members:
+     :special-members: __call__
+
+
 IO (Dict)
 ^^^^^^^^^
 
@@ -898,6 +1029,18 @@ Post-processing (Dict)
 `KeepLargestConnectedComponentd`
 """"""""""""""""""""""""""""""""
 .. autoclass:: KeepLargestConnectedComponentd
+    :members:
+    :special-members: __call__
+
+`LabelFilterd`
+""""""""""""""
+.. autoclass:: LabelFilterd
+    :members:
+    :special-members: __call__
+
+`FillHolesd`
+""""""""""""
+.. autoclass:: FillHolesd
     :members:
     :special-members: __call__
 
@@ -1177,6 +1320,12 @@ Utility (Dict)
     :members:
     :special-members: __call__
 
+`ClassesToIndicesd`
+"""""""""""""""""""
+.. autoclass:: ClassesToIndicesd
+    :members:
+    :special-members: __call__
+
 `ConvertToMultiChannelBasedOnBratsClassesd`
 """""""""""""""""""""""""""""""""""""""""""
 .. autoclass:: ConvertToMultiChannelBasedOnBratsClassesd
@@ -1206,6 +1355,25 @@ Utility (Dict)
 .. autoclass:: MapLabelValued
     :members:
     :special-members: __call__
+
+`EnsureTyped`
+"""""""""""""
+.. autoclass:: EnsureTyped
+    :members:
+    :special-members: __call__
+
+`IntensityStatsd`
+"""""""""""""""""
+.. autoclass:: IntensityStatsd
+    :members:
+    :special-members: __call__
+
+`ToDeviced`
+"""""""""""
+ .. autoclass:: ToDeviced
+     :members:
+     :special-members: __call__
+
 
 Transform Adaptors
 ------------------

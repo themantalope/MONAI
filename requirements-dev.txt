@@ -3,9 +3,9 @@
 pytorch-ignite==0.4.5
 gdown>=3.6.4
 scipy
-itk>=5.0, <=5.1.2
+itk>=5.2
 nibabel
-pillow
+pillow!=8.3.0  # https://github.com/python-pillow/Pillow/issues/5571
 tensorboard
 scikit-image>=0.14.2
 tqdm>=4.47.0
@@ -38,3 +38,4 @@ requests
 jupyterlab==3.0.16
 openpyxl==3.0.7
 xlrd==2.0.1
+einops

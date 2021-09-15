@@ -79,9 +79,28 @@ Blocks
 .. autoclass:: ResBlock
     :members:
 
+`SABlock Block`
+~~~~~~~~~~~~~~~
+.. autoclass:: SABlock
+    :members:
+
 `Squeeze-and-Excitation`
 ~~~~~~~~~~~~~~~~~~~~~~~~
 .. autoclass:: ChannelSELayer
+    :members:
+
+`Transformer Block`
+~~~~~~~~~~~~~~~~~~~
+.. autoclass:: TransformerBlock
+    :members:
+
+`UNETR Block`
+~~~~~~~~~~~~~
+.. autoclass:: UnetrBasicBlock
+    :members:
+.. autoclass:: UnetrUpBlock
+    :members:
+.. autoclass:: UnetrPrUpBlock
     :members:
 
 `Residual Squeeze-and-Excitation`
@@ -135,12 +154,12 @@ Blocks
     :members:
 
 `Registration Down Sample Block`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. autoclass:: RegistrationDownSampleBlock
     :members:
 
 `Registration Extraction Block`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. autoclass:: RegistrationExtractionBlock
     :members:
 
@@ -157,6 +176,16 @@ Blocks
 `LocalNet Feature Extractor Block`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. autoclass:: LocalNetFeatureExtractorBlock
+    :members:
+
+`MLP Block`
+~~~~~~~~~~~
+.. autoclass:: MLPBlock
+    :members:
+
+`Patch Embedding Block`
+~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: PatchEmbeddingBlock
     :members:
 
 `Warp`
@@ -329,6 +358,11 @@ Nets
 .. autoclass:: EfficientNetBN
   :members:
 
+`EfficientNetBNFeatures`
+~~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: EfficientNetBNFeatures
+  :members:
+
 `SegResNet`
 ~~~~~~~~~~~
 .. autoclass:: SegResNet
@@ -389,6 +423,11 @@ Nets
 .. autoclass:: Unet
 .. autoclass:: unet
 
+`UNETR`
+~~~~~~~
+.. autoclass:: UNETR
+    :members:
+
 `BasicUNet`
 ~~~~~~~~~~~
 .. autoclass:: BasicUNet
@@ -402,7 +441,7 @@ Nets
   :members:
 
 `RegUNet`
-~~~~~~~~~~
+~~~~~~~~~
 .. autoclass:: RegUNet
   :members:
 
@@ -424,6 +463,11 @@ Nets
 `VarAutoEncoder`
 ~~~~~~~~~~~~~~~~
 .. autoclass:: VarAutoEncoder
+  :members:
+
+`ViT`
+~~~~~
+.. autoclass:: ViT
   :members:
 
 `FullyConnectedNet`

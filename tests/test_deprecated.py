@@ -16,6 +16,49 @@ import warnings
 from monai.utils import DeprecatedError, deprecated, deprecated_arg
 
 
+class TestDeprecatedRC(unittest.TestCase):
+    def setUp(self):
+        self.test_version_rc = "0.6.0rc1"
+        self.test_version = "0.6.0"
+        self.next_version = "0.7.0"
+
+    def test_warning(self):
+        """Test deprecated decorator with `since` and `removed` set for an RC version"""
+
+        @deprecated(since=self.test_version, removed=self.next_version, version_val=self.test_version_rc)
+        def foo2():
+            pass
+
+        print(foo2())
+
+    def test_warning_milestone(self):
+        """Test deprecated decorator with `since` and `removed` set for a milestone version"""
+
+        @deprecated(since=self.test_version, removed=self.next_version, version_val=self.test_version)
+        def foo2():
+            pass
+
+        self.assertWarns(DeprecationWarning, foo2)
+
+    def test_warning_last(self):
+        """Test deprecated decorator with `since` and `removed` set, for the last version"""
+
+        @deprecated(since=self.test_version, removed=self.next_version, version_val=self.next_version)
+        def foo3():
+            pass
+
+        self.assertRaises(DeprecatedError, foo3)
+
+    def test_warning_beyond(self):
+        """Test deprecated decorator with `since` and `removed` set, beyond the last version"""
+
+        @deprecated(since=self.test_version_rc, removed=self.test_version, version_val=self.next_version)
+        def foo3():
+            pass
+
+        self.assertRaises(DeprecatedError, foo3)
+
+
 class TestDeprecated(unittest.TestCase):
     def setUp(self):
         self.test_version = "0.5.3+96.g1fa03c2.dirty"
@@ -179,3 +222,31 @@ class TestDeprecated(unittest.TestCase):
             warnings.warn("fake warning", DeprecationWarning)
 
         self.assertEqual(aw.warning.args[0], "fake warning")
+
+    def test_arg_except2_unknown(self):
+        """
+        Test deprecated_arg decorator raises exception with `removed` set in the past.
+        with unknown version
+        """
+
+        @deprecated_arg("b", removed=self.prev_version, version_val="0+untagged.1.g3131155")
+        def afoo4(a, b=None):
+            pass
+
+        self.assertRaises(DeprecatedError, lambda: afoo4(1, b=2))
+
+    def test_replacement_arg(self):
+        """
+        Test deprecated arg being replaced.
+        """
+
+        @deprecated_arg("b", new_name="a", since=self.prev_version, version_val=self.test_version)
+        def afoo4(a, b=None):
+            return a
+
+        self.assertEqual(afoo4(b=2), 2)
+        # self.assertRaises(DeprecatedError, lambda: afoo4(1, b=2))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -41,7 +41,7 @@ def run_test(batch_size=64, train_steps=200, device="cuda:0"):
             return train_steps
 
     net = UNet(
-        dimensions=2, in_channels=1, out_channels=1, channels=(4, 8, 16, 32), strides=(2, 2, 2), num_res_units=2
+        spatial_dims=2, in_channels=1, out_channels=1, channels=(4, 8, 16, 32), strides=(2, 2, 2), num_res_units=2
     ).to(device)
 
     loss = DiceLoss(sigmoid=True)
@@ -75,7 +75,7 @@ class TestDeterminism(DistTestCase):
     def tearDown(self):
         set_determinism(seed=None)
 
-    @TimedCall(seconds=30)
+    @TimedCall(seconds=150)
     def test_training(self):
         set_determinism(seed=0)
         loss, step = run_test(device=self.device)

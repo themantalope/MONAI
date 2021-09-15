@@ -114,7 +114,7 @@ def compute_meandice(
             the predicted output. Defaults to True.
 
     Returns:
-        Dice scores per batch and per class, (shape [batch_size, n_classes]).
+        Dice scores per batch and per class, (shape [batch_size, num_classes]).
 
     Raises:
         ValueError: when `y_pred` and `y` have different shapes.
@@ -142,5 +142,8 @@ def compute_meandice(
     y_pred_o = torch.sum(y_pred, dim=reduce_axis)
     denominator = y_o + y_pred_o
 
-    f = torch.where(y_o > 0, (2.0 * intersection) / denominator, torch.tensor(float("nan"), device=y_o.device))
-    return f  # returns array of Dice with shape: [batch, n_classes]
+    return torch.where(
+        y_o > 0,
+        (2.0 * intersection) / denominator,
+        torch.tensor(float("nan"), device=y_o.device),
+    )

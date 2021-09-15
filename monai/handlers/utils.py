@@ -10,7 +10,6 @@
 # limitations under the License.
 
 import os
-import warnings
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Union
 
@@ -18,7 +17,7 @@ import numpy as np
 import torch
 
 from monai.config import IgniteInfo, KeysCollection
-from monai.utils import ensure_tuple, get_torch_version_tuple, min_version, optional_import
+from monai.utils import deprecated, ensure_tuple, get_torch_version_tuple, look_up_option, min_version, optional_import
 
 idist, _ = optional_import("ignite", IgniteInfo.OPT_IMPORT_VERSION, min_version, "distributed")
 if TYPE_CHECKING:
@@ -58,6 +57,7 @@ def stopping_fn_from_loss():
     return stopping_fn
 
 
+@deprecated(since="0.6.0", removed="0.7.0", msg_suffix="The API had been moved to monai.utils module.")
 def evenly_divisible_all_gather(data: torch.Tensor) -> torch.Tensor:
     """
     Utility function for distributed data parallel to pad at first dim to make it evenly divisible and all_gather.
@@ -68,11 +68,10 @@ def evenly_divisible_all_gather(data: torch.Tensor) -> torch.Tensor:
     Note:
         The input data on different ranks must have exactly same `dtype`.
 
+    .. versionchanged:: 0.6.0
+        The API had been moved to `monai.utils`.
+
     """
-    warnings.warn(
-        "evenly_divisible_all_gather had been moved to monai.utils module, will deprecate this API in MONAI v0.7.",
-        DeprecationWarning,
-    )
     if not isinstance(data, torch.Tensor):
         raise ValueError("input data must be PyTorch Tensor.")
 
@@ -92,20 +91,20 @@ def evenly_divisible_all_gather(data: torch.Tensor) -> torch.Tensor:
     return torch.cat([data[i * max_len : i * max_len + l, ...] for i, l in enumerate(all_lens)], dim=0)
 
 
+@deprecated(since="0.6.0", removed="0.7.0", msg_suffix="The API had been moved to monai.utils module.")
 def string_list_all_gather(strings: List[str]) -> List[str]:
     """
     Utility function for distributed data parallel to all gather a list of strings.
     Note that if the item in `strings` is longer than 1024 chars, it will be truncated to 1024:
-    https://github.com/pytorch/ignite/blob/master/ignite/distributed/comp_models/base.py#L92
+    https://pytorch.org/ignite/v0.4.5/distributed.html#ignite.distributed.utils.all_gather.
 
     Args:
         strings: a list of strings to all gather.
 
+    .. versionchanged:: 0.6.0
+        The API had been moved to `monai.utils`.
+
     """
-    warnings.warn(
-        "string_list_all_gather had been moved to monai.utils module, will deprecate this API in MONAI v0.7.",
-        DeprecationWarning,
-    )
     world_size = idist.get_world_size()
     if world_size <= 1:
         return strings
@@ -117,17 +116,16 @@ def string_list_all_gather(strings: List[str]) -> List[str]:
     max_len = max(all_lens)
     # pad the item to make sure the same length
     if length < max_len:
-        strings = strings + ["" for _ in range(max_len - length)]
+        strings += ["" for _ in range(max_len - length)]
 
-    if get_torch_version_tuple() > (1, 6, 0):
-        for s in strings:
-            gathered = idist.all_gather(s)
-            for i, g in enumerate(gathered):
-                if len(g) > 0:
-                    result[i].append(g)
-    else:
+    if get_torch_version_tuple() <= (1, 6):
         raise RuntimeError("string all_gather can not be supported in PyTorch < 1.7.0.")
 
+    for s in strings:
+        gathered = idist.all_gather(s)
+        for i, g in enumerate(gathered):
+            if len(g) > 0:
+                result[i].append(g)
     return [i for k in result for i in k]
 
 
@@ -220,11 +218,12 @@ def write_metrics_reports(
                     ops = tuple(supported_ops.keys())
 
                 def _compute_op(op: str, d: np.ndarray):
-                    if op.endswith("percentile"):
-                        threshold = int(op.split("percentile")[0])
-                        return supported_ops["90percentile"]((d, threshold))
-                    else:
-                        return supported_ops[op](d)
+                    if not op.endswith("percentile"):
+                        c_op = look_up_option(op, supported_ops)
+                        return c_op(d)
+
+                    threshold = int(op.split("percentile")[0])
+                    return supported_ops["90percentile"]((d, threshold))
 
                 with open(os.path.join(save_dir, f"{k}_summary.csv"), "w") as f:
                     f.write(f"class{deli}{deli.join(ops)}\n")
@@ -232,12 +231,16 @@ def write_metrics_reports(
                         f.write(f"{class_labels[i]}{deli}{deli.join([f'{_compute_op(k, c):.4f}' for k in ops])}\n")
 
 
-def from_engine(keys: KeysCollection):
+def from_engine(keys: KeysCollection, first: bool = False):
     """
     Utility function to simplify the `batch_transform` or `output_transform` args of ignite components
     when handling dictionary or list of dictionaries(for example: `engine.state.batch` or `engine.state.output`).
     Users only need to set the expected keys, then it will return a callable function to extract data from
     dictionary and construct a tuple respectively.
+
+    If data is a list of dictionaries after decollating, extract expected keys and construct lists respectively,
+    for example, if data is `[{"A": 1, "B": 2}, {"A": 3, "B": 4}]`, from_engine(["A", "B"]): `([1, 3], [2, 4])`.
+
     It can help avoid a complicated `lambda` function and make the arg of metrics more straight-forward.
     For example, set the first key as the prediction and the second key as label to get the expected data
     from `engine.state.output` for a metric::
@@ -249,15 +252,23 @@ def from_engine(keys: KeysCollection):
             output_transform=from_engine(["pred", "label"])
         )
 
+    Args:
+        keys: specified keys to extract data from dictionary or decollated list of dictionaries.
+        first: whether only extract specified keys from the first item if input data is a list of dictionaries,
+            it's used to extract the scalar data which doesn't have batch dim and was replicated into every
+            dictionary when decollating, like `loss`, etc.
+
+
     """
     keys = ensure_tuple(keys)
 
     def _wrapper(data):
         if isinstance(data, dict):
             return tuple(data[k] for k in keys)
-        elif isinstance(data, list) and isinstance(data[0], dict):
-            # if data is a list of dictionaries, extract expected keys and construct lists
-            ret = [[i[k] for i in data] for k in keys]
+        if isinstance(data, list) and isinstance(data[0], dict):
+            # if data is a list of dictionaries, extract expected keys and construct lists,
+            # if `first=True`, only extract keys from the first item of the list
+            ret = [data[0][k] if first else [i[k] for i in data] for k in keys]
             return tuple(ret) if len(ret) > 1 else ret[0]
 
     return _wrapper

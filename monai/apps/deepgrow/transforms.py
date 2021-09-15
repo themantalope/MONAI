@@ -8,6 +8,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
@@ -18,7 +19,7 @@ from monai.networks.layers import GaussianFilter
 from monai.transforms import Resize, SpatialCrop
 from monai.transforms.transform import MapTransform, Randomizable, Transform
 from monai.transforms.utils import generate_spatial_bounding_box
-from monai.utils import InterpolateMode, ensure_tuple, ensure_tuple_rep, min_version, optional_import
+from monai.utils import InterpolateMode, deprecated_arg, ensure_tuple, ensure_tuple_rep, min_version, optional_import
 
 measure, _ = optional_import("skimage.measure", "0.14.2", min_version)
 distance_transform_cdt, _ = optional_import("scipy.ndimage.morphology", name="distance_transform_cdt")
@@ -144,7 +145,7 @@ class AddInitialSeedPointd(Randomizable, Transform):
     def __call__(self, data):
         d = dict(data)
         self.randomize(data)
-        d[self.guidance] = self._apply(d[self.label], self.sid)
+        d[self.guidance] = json.dumps(self._apply(d[self.label], self.sid).astype(int).tolist())
         return d
 
 
@@ -159,7 +160,7 @@ class AddGuidanceSignald(Transform):
         guidance: key to store guidance.
         sigma: standard deviation for Gaussian kernel.
         number_intensity_ch: channel index.
-        batched: whether input is batched or not.
+
     """
 
     def __init__(
@@ -168,17 +169,16 @@ class AddGuidanceSignald(Transform):
         guidance: str = "guidance",
         sigma: int = 2,
         number_intensity_ch: int = 1,
-        batched: bool = False,
     ):
         self.image = image
         self.guidance = guidance
         self.sigma = sigma
         self.number_intensity_ch = number_intensity_ch
-        self.batched = batched
 
     def _get_signal(self, image, guidance):
         dimensions = 3 if len(image.shape) > 3 else 2
         guidance = guidance.tolist() if isinstance(guidance, np.ndarray) else guidance
+        guidance = json.loads(guidance) if isinstance(guidance, str) else guidance
         if dimensions == 3:
             signal = np.zeros((len(guidance), image.shape[-3], image.shape[-2], image.shape[-1]), dtype=np.float32)
         else:
@@ -210,16 +210,9 @@ class AddGuidanceSignald(Transform):
         return signal
 
     def _apply(self, image, guidance):
-        if not self.batched:
-            signal = self._get_signal(image, guidance)
-            return np.concatenate([image, signal], axis=0)
-
-        images = []
-        for i, g in zip(image, guidance):
-            i = i[0 : 0 + self.number_intensity_ch, ...]
-            signal = self._get_signal(i, g)
-            images.append(np.concatenate([i, signal], axis=0))
-        return images
+        signal = self._get_signal(image, guidance)
+        image = image[0 : 0 + self.number_intensity_ch, ...]
+        return np.concatenate([image, signal], axis=0)
 
     def __call__(self, data):
         d = dict(data)
@@ -234,26 +227,17 @@ class FindDiscrepancyRegionsd(Transform):
     """
     Find discrepancy between prediction and actual during click interactions during training.
 
-    If batched is true:
-
-        label is in shape (B, C, D, H, W) or (B, C, H, W)
-        pred has same shape as label
-        discrepancy will have shape (B, 2, C, D, H, W) or (B, 2, C, H, W)
-
     Args:
         label: key to label source.
         pred: key to prediction source.
         discrepancy: key to store discrepancies found between label and prediction.
-        batched: whether input is batched or not.
+
     """
 
-    def __init__(
-        self, label: str = "label", pred: str = "pred", discrepancy: str = "discrepancy", batched: bool = True
-    ):
+    def __init__(self, label: str = "label", pred: str = "pred", discrepancy: str = "discrepancy"):
         self.label = label
         self.pred = pred
         self.discrepancy = discrepancy
-        self.batched = batched
 
     @staticmethod
     def disparity(label, pred):
@@ -266,13 +250,7 @@ class FindDiscrepancyRegionsd(Transform):
         return [pos_disparity, neg_disparity]
 
     def _apply(self, label, pred):
-        if not self.batched:
-            return self.disparity(label, pred)
-
-        disparity = []
-        for la, pr in zip(label, pred):
-            disparity.append(self.disparity(la, pr))
-        return disparity
+        return self.disparity(label, pred)
 
     def __call__(self, data):
         d = dict(data)
@@ -286,30 +264,16 @@ class FindDiscrepancyRegionsd(Transform):
 class AddRandomGuidanced(Randomizable, Transform):
     """
     Add random guidance based on discrepancies that were found between label and prediction.
-
-    If batched is True, input shape is as below:
-
-        Guidance is of shape (B, 2, N, # of dim) where B is batch size, 2 means positive and negative,
-        N means how many guidance points, # of dim is the total number of dimensions of the image
-        (for example if the image is CDHW, then # of dim would be 4).
-
-        Discrepancy is of shape (B, 2, C, D, H, W) or (B, 2, C, H, W)
-
-        Probability is of shape (B, 1)
-
-    else:
-
-        Guidance is of shape (2, N, # of dim)
-
-        Discrepancy is of shape (2, C, D, H, W) or (2, C, H, W)
-
-        Probability is of shape (1)
+    input shape is as below:
+    Guidance is of shape (2, N, # of dim)
+    Discrepancy is of shape (2, C, D, H, W) or (2, C, H, W)
+    Probability is of shape (1)
 
     Args:
         guidance: key to guidance source.
         discrepancy: key that represents discrepancies found between label and prediction.
         probability: key that represents click/interaction probability.
-        batched: whether input is batched or not.
+
     """
 
     def __init__(
@@ -317,22 +281,15 @@ class AddRandomGuidanced(Randomizable, Transform):
         guidance: str = "guidance",
         discrepancy: str = "discrepancy",
         probability: str = "probability",
-        batched: bool = True,
     ):
         self.guidance = guidance
         self.discrepancy = discrepancy
         self.probability = probability
-        self.batched = batched
         self._will_interact = None
 
     def randomize(self, data=None):
         probability = data[self.probability]
-        if not self.batched:
-            self._will_interact = self.R.choice([True, False], p=[probability, 1.0 - probability])
-        else:
-            self._will_interact = []
-            for p in probability:
-                self._will_interact.append(self.R.choice([True, False], p=[p, 1.0 - p]))
+        self._will_interact = self.R.choice([True, False], p=[probability, 1.0 - probability])
 
     def find_guidance(self, discrepancy):
         distance = distance_transform_cdt(discrepancy).flatten()
@@ -368,24 +325,16 @@ class AddRandomGuidanced(Randomizable, Transform):
 
     def _apply(self, guidance, discrepancy):
         guidance = guidance.tolist() if isinstance(guidance, np.ndarray) else guidance
-        if not self.batched:
-            pos, neg = self.add_guidance(discrepancy, self._will_interact)
-            if pos:
-                guidance[0].append(pos)
-                guidance[1].append([-1] * len(pos))
-            if neg:
-                guidance[0].append([-1] * len(neg))
-                guidance[1].append(neg)
-        else:
-            for g, d, w in zip(guidance, discrepancy, self._will_interact):
-                pos, neg = self.add_guidance(d, w)
-                if pos:
-                    g[0].append(pos)
-                    g[1].append([-1] * len(pos))
-                if neg:
-                    g[0].append([-1] * len(neg))
-                    g[1].append(neg)
-        return np.asarray(guidance)
+        guidance = json.loads(guidance) if isinstance(guidance, str) else guidance
+        pos, neg = self.add_guidance(discrepancy, self._will_interact)
+        if pos:
+            guidance[0].append(pos)
+            guidance[1].append([-1] * len(pos))
+        if neg:
+            guidance[0].append([-1] * len(neg))
+            guidance[1].append(neg)
+
+        return json.dumps(np.asarray(guidance).astype(int).tolist())
 
     def __call__(self, data):
         d = dict(data)
@@ -527,7 +476,7 @@ class AddGuidanceFromPointsd(Transform):
         background: key that represents user background (-ve) clicks.
         axis: axis that represents slices in 3D volume. (axis to Depth)
         depth_first: if depth (slices) is positioned at first dimension.
-        dimensions: dimensions based on model used for deepgrow (2D vs 3D).
+        spatial_dims: dimensions based on model used for deepgrow (2D vs 3D).
         slice_key: key that represents applicable slice to add guidance.
         meta_keys: explicitly indicate the key of the meta data dictionary of `ref_image`.
             for example, for data with key `image`, the metadata by default is in `image_meta_dict`.
@@ -537,8 +486,13 @@ class AddGuidanceFromPointsd(Transform):
             to the key data, default is `meta_dict`, the meta data is a dictionary object.
             For example, to handle key `image`,  read/write affine matrices from the
             metadata `image_meta_dict` dictionary's `affine` field.
+
+    .. deprecated:: 0.6.0
+        ``dimensions`` is deprecated, use ``spatial_dims`` instead.
+
     """
 
+    @deprecated_arg(name="dimensions", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         ref_image,
@@ -547,10 +501,11 @@ class AddGuidanceFromPointsd(Transform):
         background: str = "background",
         axis: int = 0,
         depth_first: bool = True,
-        dimensions: int = 2,
+        spatial_dims: int = 2,
         slice_key: str = "slice",
         meta_keys: Optional[str] = None,
         meta_key_postfix: str = "meta_dict",
+        dimensions: Optional[int] = None,
     ):
         self.ref_image = ref_image
         self.guidance = guidance
@@ -558,7 +513,7 @@ class AddGuidanceFromPointsd(Transform):
         self.background = background
         self.axis = axis
         self.depth_first = depth_first
-        self.dimensions = dimensions
+        self.dimensions = spatial_dims if dimensions is None else dimensions
         self.slice = slice_key
         self.meta_keys = meta_keys
         self.meta_key_postfix = meta_key_postfix

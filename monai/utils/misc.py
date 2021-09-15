@@ -17,11 +17,12 @@ import types
 import warnings
 from ast import literal_eval
 from distutils.util import strtobool
-from typing import Any, Callable, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Callable, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import torch
-import torch.distributed as dist
+
+from monai.utils.module import get_torch_version_tuple, version_leq
 
 __all__ = [
     "zip_with",
@@ -38,14 +39,10 @@ __all__ = [
     "get_seed",
     "set_determinism",
     "list_to_dict",
-    "dtype_torch_to_numpy",
-    "dtype_numpy_to_torch",
     "MAX_SEED",
     "copy_to_device",
-    "get_dist_device",
-    "evenly_divisible_all_gather",
-    "string_list_all_gather",
     "ImageMetaKey",
+    "is_module_ver_at_least",
 ]
 
 _seed = None
@@ -127,6 +124,10 @@ def ensure_tuple_rep(tup: Any, dim: int) -> Tuple[Any, ...]:
         ValueError: Sequence must have length 3, got length 2.
 
     """
+    if isinstance(tup, torch.Tensor):
+        tup = tup.detach().cpu().numpy()
+    if isinstance(tup, np.ndarray):
+        tup = tup.tolist()
     if not issequenceiterable(tup):
         return (tup,) * dim
     if len(tup) == dim:
@@ -182,9 +183,7 @@ def fall_back_tuple(
 
 
 def is_scalar_tensor(val: Any) -> bool:
-    if isinstance(val, torch.Tensor) and val.ndim == 0:
-        return True
-    return False
+    return isinstance(val, torch.Tensor) and val.ndim == 0
 
 
 def is_scalar(val: Any) -> bool:
@@ -203,7 +202,7 @@ def progress_bar(index: int, count: int, desc: Optional[str] = None, bar_len: in
         bar_len: the total length of the bar on screen, default is 30 char.
         newline: whether to print in a new line for every index.
     """
-    end = "\r" if newline is False else "\r\n"
+    end = "\r" if not newline else "\r\n"
     filled_len = int(bar_len * index // count)
     bar = f"{desc} " if desc is not None else ""
     bar += "[" + "=" * filled_len + " " * (bar_len - filled_len) + "]"
@@ -218,6 +217,7 @@ def get_seed() -> Optional[int]:
 
 def set_determinism(
     seed: Optional[int] = np.iinfo(np.uint32).max,
+    use_deterministic_algorithms: Optional[bool] = None,
     additional_settings: Optional[Union[Sequence[Callable[[int], Any]], Callable[[int], Any]]] = None,
 ) -> None:
     """
@@ -228,15 +228,14 @@ def set_determinism(
             It is recommended to set a large seed, i.e. a number that has a good balance
             of 0 and 1 bits. Avoid having many 0 bits in the seed.
             if set to None, will disable deterministic training.
-        additional_settings: additional settings
-            that need to set random seed.
+        use_deterministic_algorithms: Set whether PyTorch operations must use "deterministic" algorithms.
+        additional_settings: additional settings that need to set random seed.
 
     """
     if seed is None:
         # cast to 32 bit seed for CUDA
         seed_ = torch.default_generator.seed() % (np.iinfo(np.int32).max + 1)
-        if not torch.cuda._is_in_bad_fork():
-            torch.cuda.manual_seed_all(seed_)
+        torch.manual_seed(seed_)
     else:
         seed = int(seed) % MAX_SEED
         torch.manual_seed(seed)
@@ -257,6 +256,15 @@ def set_determinism(
     else:  # restore the original flags
         torch.backends.cudnn.deterministic = _flag_deterministic
         torch.backends.cudnn.benchmark = _flag_cudnn_benchmark
+
+    if use_deterministic_algorithms is not None:
+        torch_ver = get_torch_version_tuple()
+        if torch_ver >= (1, 9):
+            torch.use_deterministic_algorithms(use_deterministic_algorithms)
+        elif torch_ver >= (1, 7):
+            torch.set_deterministic(use_deterministic_algorithms)  # beta feature
+        else:
+            warnings.warn("use_deterministic_algorithms=True, but PyTorch version is too old to set the mode.")
 
 
 def list_to_dict(items):
@@ -291,32 +299,6 @@ def list_to_dict(items):
                 except ValueError:
                     d[key] = value
     return d
-
-
-_torch_to_np_dtype = {
-    torch.bool: bool,
-    torch.uint8: np.uint8,
-    torch.int8: np.int8,
-    torch.int16: np.int16,
-    torch.int32: np.int32,
-    torch.int64: np.int64,
-    torch.float16: np.float16,
-    torch.float32: np.float32,
-    torch.float64: np.float64,
-    torch.complex64: np.complex64,
-    torch.complex128: np.complex128,
-}
-_np_to_torch_dtype = {value: key for key, value in _torch_to_np_dtype.items()}
-
-
-def dtype_torch_to_numpy(dtype):
-    """Convert a torch dtype to its numpy equivalent."""
-    return _torch_to_np_dtype[dtype]
-
-
-def dtype_numpy_to_torch(dtype):
-    """Convert a numpy dtype to its torch equivalent."""
-    return _np_to_torch_dtype[dtype]
 
 
 def copy_to_device(
@@ -356,95 +338,6 @@ def copy_to_device(
     return obj
 
 
-def get_dist_device():
-    """
-    Get the expected target device in the distributed data parallel.
-    For NCCL backend, return GPU device of current process.
-    For GLOO backend, return CPU.
-    For any other backends, return None as the default, tensor.to(None) will not change the device.
-
-    """
-    if dist.is_initialized():
-        backend = dist.get_backend()
-        if backend == "nccl" and torch.cuda.is_available():
-            return torch.device(f"cuda:{torch.cuda.current_device()}")
-        elif backend == "gloo":
-            return torch.device("cpu")
-    return None
-
-
-def evenly_divisible_all_gather(data: torch.Tensor, concat: bool = True):
-    """
-    Utility function for distributed data parallel to pad at first dim to make it evenly divisible and all_gather.
-    The input data of every rank should have the same number of dimensions, only the first dim can be different.
-
-    Args:
-        data: source tensor to pad and execute all_gather in distributed data parallel.
-        concat: whether to concat the gathered list to be a Tensor, if False, return a list
-            of Tensors, similar behavior as torch.distributed.all_gather(). default to True.
-
-    Note:
-        The input data on different ranks must have exactly same `dtype`.
-
-    """
-    if not isinstance(data, torch.Tensor):
-        raise ValueError("input data must be PyTorch Tensor.")
-
-    world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
-    if world_size <= 1:
-        return data
-
-    device = get_dist_device()
-    orig_device = data.device
-    data = data.to(device)
-    # data of all the ranks must have same number of dimensions
-    ndims = data.ndimension()
-    if ndims == 0:
-        # tensor must have batch dimension
-        data = data.unsqueeze(0)
-    # make sure the data is evenly-divisible on multi-GPUs
-    length: int = data.shape[0]
-    length_tensor = torch.as_tensor([length], device=device)
-    all_lens = [torch.zeros_like(length_tensor) for _ in range(world_size)]
-    dist.all_gather(all_lens, length_tensor)
-    all_lens_: List[int] = [int(i.item()) for i in all_lens]
-
-    max_len: int = max(all_lens_)
-    if length < max_len:
-        size = [max_len - length] + list(data.shape[1:])
-        data = torch.cat([data, data.new_full(size, 0)], dim=0)
-    # all gather across all processes
-    output = [torch.zeros_like(data) for _ in range(world_size)]
-    dist.all_gather(output, data)
-    # remove the padding items, if all the input data doesn't have batch dim, suqeeze the first dim
-    output = [(o.squeeze(0) if ndims == 0 else o[:l, ...]).to(orig_device) for o, l in zip(output, all_lens_)]
-
-    return torch.cat(output, dim=0) if concat else output
-
-
-def string_list_all_gather(strings: List[str], delimiter: str = "\t") -> List[str]:
-    """
-    Utility function for distributed data parallel to all gather a list of strings.
-    Refer to the idea of ignite `all_gather(string)`:
-    https://github.com/pytorch/ignite/blob/master/ignite/distributed/utils.py#L346.
-
-    Args:
-        strings: a list of strings to all gather.
-        delimiter: use the delimiter to join the string list to be a long string,
-            then all gather across ranks and split to a list. default to "\t".
-
-    """
-    world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
-    if world_size <= 1:
-        return strings
-
-    joined = delimiter.join(strings)
-    gathered = evenly_divisible_all_gather(torch.tensor(bytearray(joined, "utf-8"), dtype=torch.long), concat=False)
-    gathered = [bytearray(g.tolist()).decode("utf-8").split(delimiter) for g in gathered]
-
-    return [i for k in gathered for i in k]
-
-
 class ImageMetaKey:
     """
     Common key names in the meta data header of images
@@ -452,3 +345,26 @@ class ImageMetaKey:
 
     FILENAME_OR_OBJ = "filename_or_obj"
     PATCH_INDEX = "patch_index"
+
+
+def has_option(obj, keywords: Union[str, Sequence[str]]) -> bool:
+    """
+    Return a boolean indicating whether the given callable `obj` has the `keywords` in its signature.
+    """
+    if not callable(obj):
+        return False
+    sig = inspect.signature(obj)
+    return all(key in sig.parameters for key in ensure_tuple(keywords))
+
+
+def is_module_ver_at_least(module, version):
+    """Determine if a module's version is at least equal to the given value.
+
+    Args:
+        module: imported module's name, e.g., `np` or `torch`.
+        version: required version, given as a tuple, e.g., `(1, 8, 0)`.
+    Returns:
+        `True` if module is the given version or newer.
+    """
+    test_ver = ".".join(map(str, version))
+    return module.__version__ != test_ver and version_leq(test_ver, module.__version__)

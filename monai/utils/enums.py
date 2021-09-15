@@ -23,14 +23,13 @@ __all__ = [
     "MetricReduction",
     "LossReduction",
     "Weight",
-    "Normalization",
-    "Activation",
     "ChannelMatching",
     "SkipMode",
     "Method",
     "InverseKeys",
     "CommonKeys",
     "ForwardMode",
+    "TransformBackends",
 ]
 
 
@@ -172,31 +171,6 @@ class Weight(Enum):
     UNIFORM = "uniform"
 
 
-class Normalization(Enum):
-    """
-    See also:
-        - :py:class:`monai.networks.nets.ConvNormActi`
-        - :py:class:`monai.networks.nets.HighResBlock`
-        - :py:class:`monai.networks.nets.HighResNet`
-    """
-
-    BATCH = "batch"
-    INSTANCE = "instance"
-
-
-class Activation(Enum):
-    """
-    See also:
-        - :py:class:`monai.networks.nets.ConvNormActi`
-        - :py:class:`monai.networks.nets.HighResBlock`
-        - :py:class:`monai.networks.nets.HighResNet`
-    """
-
-    RELU = "relu"
-    PRELU = "prelu"
-    RELU6 = "relu6"
-
-
 class ChannelMatching(Enum):
     """
     See also: :py:class:`monai.networks.nets.HighResBlock`
@@ -260,3 +234,12 @@ class CommonKeys:
     LABEL = "label"
     PRED = "pred"
     LOSS = "loss"
+
+
+class TransformBackends(Enum):
+    """
+    Transform backends.
+    """
+
+    TORCH = "torch"
+    NUMPY = "numpy"

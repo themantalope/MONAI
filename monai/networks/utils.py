@@ -20,6 +20,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence, Union
 import torch
 import torch.nn as nn
 
+from monai.utils.deprecated import deprecated_arg
+
 __all__ = [
     "one_hot",
     "slice_channels",
@@ -37,17 +39,38 @@ __all__ = [
 
 def one_hot(labels: torch.Tensor, num_classes: int, dtype: torch.dtype = torch.float, dim: int = 1) -> torch.Tensor:
     """
-    For a tensor `labels` of dimensions [B]1[spatial_dims], return a tensor of dimensions `[B]N[spatial_dims]`
-    for `num_classes` N number of classes.
+    For every value v in `labels`, the value in the output will be either 1 or 0. Each vector along the `dim`-th
+    dimension has the "one-hot" format, i.e., it has a total length of `num_classes`,
+    with a one and `num_class-1` zeros.
+    Note that this will include the background label, thus a binary mask should be treated as having two classes.
+
+    Args:
+        labels: input tensor of integers to be converted into the 'one-hot' format. Internally `labels` will be
+            converted into integers `labels.long()`.
+        num_classes: number of output channels, the corresponding length of `labels[dim]` will be converted to
+            `num_classes` from `1`.
+        dtype: the data type of the output one_hot label.
+        dim: the dimension to be converted to `num_classes` channels from `1` channel, should be non-negative number.
 
     Example:
 
-        For every value v = labels[b,1,h,w], the value in the result at [b,v,h,w] will be 1 and all others 0.
-        Note that this will include the background label, thus a binary mask should be treated as having 2 classes.
+    For a tensor `labels` of dimensions [B]1[spatial_dims], return a tensor of dimensions `[B]N[spatial_dims]`
+    when `num_classes=N` number of classes and `dim=1`.
+
+    .. code-block:: python
+
+        from monai.networks.utils import one_hot
+        import torch
+
+        a = torch.randint(0, 2, size=(1, 2, 2, 2))
+        out = one_hot(a, num_classes=2, dim=0)
+        print(out.shape)  # torch.Size([2, 2, 2, 2])
+
+        a = torch.randint(0, 2, size=(2, 1, 2, 2, 2))
+        out = one_hot(a, num_classes=2, dim=1)
+        print(out.shape)  # torch.Size([2, 2, 2, 2, 2])
+
     """
-    if labels.dim() == 0:
-        # if no channel dim, add it
-        labels = labels.unsqueeze(0)
 
     # if `dim` is bigger, add singleton dim at the end
     if labels.ndim < dim + 1:
@@ -204,9 +227,14 @@ def icnr_init(conv, upsample_factor, init=nn.init.kaiming_normal_):
     conv.weight.data.copy_(kernel)
 
 
-def pixelshuffle(x: torch.Tensor, dimensions: int, scale_factor: int) -> torch.Tensor:
+@deprecated_arg(
+    name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
+)
+def pixelshuffle(
+    x: torch.Tensor, spatial_dims: int, scale_factor: int, dimensions: Optional[int] = None
+) -> torch.Tensor:
     """
-    Apply pixel shuffle to the tensor `x` with spatial dimensions `dimensions` and scaling factor `scale_factor`.
+    Apply pixel shuffle to the tensor `x` with spatial dimensions `spatial_dims` and scaling factor `scale_factor`.
 
     See: Shi et al., 2016, "Real-Time Single Image and Video Super-Resolution
     Using a nEfficient Sub-Pixel Convolutional Neural Network."
@@ -215,17 +243,21 @@ def pixelshuffle(x: torch.Tensor, dimensions: int, scale_factor: int) -> torch.T
 
     Args:
         x: Input tensor
-        dimensions: number of spatial dimensions, typically 2 or 3 for 2D or 3D
+        spatial_dims: number of spatial dimensions, typically 2 or 3 for 2D or 3D
         scale_factor: factor to rescale the spatial dimensions by, must be >=1
+
+    .. deprecated:: 0.6.0
+        ``dimensions`` is deprecated, use ``spatial_dims`` instead.
 
     Returns:
         Reshuffled version of `x`.
 
     Raises:
-        ValueError: When input channels of `x` are not divisible by (scale_factor ** dimensions)
+        ValueError: When input channels of `x` are not divisible by (scale_factor ** spatial_dims)
     """
-
-    dim, factor = dimensions, scale_factor
+    if dimensions is not None:
+        spatial_dims = dimensions
+    dim, factor = spatial_dims, scale_factor
     input_size = list(x.size())
     batch_size, channels = input_size[:2]
     scale_divisor = factor ** dim

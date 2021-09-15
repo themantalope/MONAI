@@ -15,13 +15,14 @@ import torch
 from torch.utils.data import DataLoader
 
 from monai.config import IgniteInfo
-from monai.engines.utils import IterationEvents, default_prepare_batch
+from monai.engines.utils import IterationEvents, default_metric_cmp_fn, default_prepare_batch
 from monai.engines.workflow import Workflow
 from monai.inferers import Inferer, SimpleInferer
 from monai.networks.utils import eval_mode, train_mode
 from monai.transforms import Transform
 from monai.utils import ForwardMode, ensure_tuple, min_version, optional_import
 from monai.utils.enums import CommonKeys as Keys
+from monai.utils.module import look_up_option
 
 if TYPE_CHECKING:
     from ignite.engine import Engine, EventEnum
@@ -53,6 +54,9 @@ class Evaluator(Workflow):
             engine.state.metrics when epoch completed. key_val_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         val_handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         amp: whether to enable auto-mixed-precision evaluation, default is False.
@@ -61,10 +65,11 @@ class Evaluator(Workflow):
         event_names: additional custom ignite events that will register to the engine.
             new events can be a list of str or `ignite.engine.events.EventEnum`.
         event_to_attr: a dictionary to map an event to a state attribute, then add to `engine.state`.
-            for more details, check: https://github.com/pytorch/ignite/blob/v0.4.4.post1/ignite/engine/engine.py#L160
+            for more details, check: https://pytorch.org/ignite/generated/ignite.engine.engine.Engine.html
+            #ignite.engine.engine.Engine.register_events.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
 
     """
 
@@ -79,6 +84,7 @@ class Evaluator(Workflow):
         postprocessing: Optional[Transform] = None,
         key_val_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         val_handlers: Optional[Sequence] = None,
         amp: bool = False,
         mode: Union[ForwardMode, str] = ForwardMode.EVAL,
@@ -97,13 +103,14 @@ class Evaluator(Workflow):
             postprocessing=postprocessing,
             key_metric=key_val_metric,
             additional_metrics=additional_metrics,
+            metric_cmp_fn=metric_cmp_fn,
             handlers=val_handlers,
             amp=amp,
             event_names=event_names,
             event_to_attr=event_to_attr,
             decollate=decollate,
         )
-        mode = ForwardMode(mode)
+        self.mode = look_up_option(mode, ForwardMode)
         if mode == ForwardMode.EVAL:
             self.mode = eval_mode
         elif mode == ForwardMode.TRAIN:
@@ -150,6 +157,9 @@ class SupervisedEvaluator(Evaluator):
             engine.state.metrics when epoch completed. key_val_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         val_handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         amp: whether to enable auto-mixed-precision evaluation, default is False.
@@ -158,10 +168,11 @@ class SupervisedEvaluator(Evaluator):
         event_names: additional custom ignite events that will register to the engine.
             new events can be a list of str or `ignite.engine.events.EventEnum`.
         event_to_attr: a dictionary to map an event to a state attribute, then add to `engine.state`.
-            for more details, check: https://github.com/pytorch/ignite/blob/v0.4.4.post1/ignite/engine/engine.py#L160
+            for more details, check: https://pytorch.org/ignite/generated/ignite.engine.engine.Engine.html
+            #ignite.engine.engine.Engine.register_events.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
 
     """
 
@@ -178,6 +189,7 @@ class SupervisedEvaluator(Evaluator):
         postprocessing: Optional[Transform] = None,
         key_val_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         val_handlers: Optional[Sequence] = None,
         amp: bool = False,
         mode: Union[ForwardMode, str] = ForwardMode.EVAL,
@@ -195,6 +207,7 @@ class SupervisedEvaluator(Evaluator):
             postprocessing=postprocessing,
             key_val_metric=key_val_metric,
             additional_metrics=additional_metrics,
+            metric_cmp_fn=metric_cmp_fn,
             val_handlers=val_handlers,
             amp=amp,
             mode=mode,
@@ -272,6 +285,9 @@ class EnsembleEvaluator(Evaluator):
             engine.state.metrics when epoch completed. key_val_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         val_handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         amp: whether to enable auto-mixed-precision evaluation, default is False.
@@ -280,10 +296,11 @@ class EnsembleEvaluator(Evaluator):
         event_names: additional custom ignite events that will register to the engine.
             new events can be a list of str or `ignite.engine.events.EventEnum`.
         event_to_attr: a dictionary to map an event to a state attribute, then add to `engine.state`.
-            for more details, check: https://github.com/pytorch/ignite/blob/v0.4.4.post1/ignite/engine/engine.py#L160
+            for more details, check: https://pytorch.org/ignite/generated/ignite.engine.engine.Engine.html
+            #ignite.engine.engine.Engine.register_events.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
 
     """
 
@@ -301,6 +318,7 @@ class EnsembleEvaluator(Evaluator):
         postprocessing: Optional[Transform] = None,
         key_val_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         val_handlers: Optional[Sequence] = None,
         amp: bool = False,
         mode: Union[ForwardMode, str] = ForwardMode.EVAL,
@@ -318,6 +336,7 @@ class EnsembleEvaluator(Evaluator):
             postprocessing=postprocessing,
             key_val_metric=key_val_metric,
             additional_metrics=additional_metrics,
+            metric_cmp_fn=metric_cmp_fn,
             val_handlers=val_handlers,
             amp=amp,
             mode=mode,

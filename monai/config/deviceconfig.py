@@ -19,15 +19,7 @@ import numpy as np
 import torch
 
 import monai
-from monai.utils import OptionalImportError, get_package_version, optional_import
-
-try:
-    import itk  # type: ignore
-
-    itk_version = itk.Version.GetITKVersion()
-    del itk
-except (ImportError, AttributeError):
-    itk_version = "NOT INSTALLED or UNKNOWN VERSION."
+from monai.utils.module import OptionalImportError, get_package_version, optional_import
 
 try:
     _, HAS_EXT = optional_import("monai._C")
@@ -76,11 +68,11 @@ def get_optional_config_values():
     output["Tensorboard"] = get_package_version("tensorboard")
     output["gdown"] = get_package_version("gdown")
     output["TorchVision"] = get_package_version("torchvision")
-    output["ITK"] = itk_version
     output["tqdm"] = get_package_version("tqdm")
     output["lmdb"] = get_package_version("lmdb")
     output["psutil"] = psutil_version
     output["pandas"] = get_package_version("pandas")
+    output["einops"] = get_package_version("einops")
 
     return output
 

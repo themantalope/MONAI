@@ -9,9 +9,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Hashable, Optional, Tuple
+from typing import Hashable, Optional, Tuple
 
-import numpy as np
 import torch
 
 from monai.transforms.transform import RandomizableTransform, Transform
@@ -97,7 +96,7 @@ class InvertibleTransform(Transform):
             return
         # basic check if multiprocessing uses 'spawn' (objects get recreated so don't have same ID)
         if (
-            torch.multiprocessing.get_start_method(allow_none=False) == "spawn"
+            torch.multiprocessing.get_start_method() in ("spawn", None)
             and transform[InverseKeys.CLASS_NAME] == self.__class__.__name__
         ):
             return
@@ -113,7 +112,7 @@ class InvertibleTransform(Transform):
         """Remove most recent transform."""
         data[str(key) + InverseKeys.KEY_SUFFIX].pop()
 
-    def inverse(self, data: dict) -> Dict[Hashable, np.ndarray]:
+    def inverse(self, data: dict) -> dict:
         """
         Inverse of ``__call__``.
 

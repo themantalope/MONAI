@@ -16,11 +16,17 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from monai.config import IgniteInfo
-from monai.engines.utils import GanKeys, IterationEvents, default_make_latent, default_prepare_batch
+from monai.engines.utils import (
+    GanKeys,
+    IterationEvents,
+    default_make_latent,
+    default_metric_cmp_fn,
+    default_prepare_batch,
+)
 from monai.engines.workflow import Workflow
 from monai.inferers import Inferer, SimpleInferer
 from monai.transforms import Transform
-from monai.utils import min_version, optional_import
+from monai.utils import PT_BEFORE_1_7, min_version, optional_import
 from monai.utils.enums import CommonKeys as Keys
 
 if TYPE_CHECKING:
@@ -79,16 +85,22 @@ class SupervisedTrainer(Trainer):
             engine.state.metrics when epoch completed. key_train_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         train_handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         amp: whether to enable auto-mixed-precision training, default is False.
         event_names: additional custom ignite events that will register to the engine.
             new events can be a list of str or `ignite.engine.events.EventEnum`.
         event_to_attr: a dictionary to map an event to a state attribute, then add to `engine.state`.
-            for more details, check: https://github.com/pytorch/ignite/blob/v0.4.4.post1/ignite/engine/engine.py#L160
+            for more details, check: https://pytorch.org/ignite/generated/ignite.engine.engine.Engine.html
+            #ignite.engine.engine.Engine.register_events.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
+        optim_set_to_none: when calling `optimizer.zero_grad()`, instead of setting to zero, set the grads to None.
+            more details: https://pytorch.org/docs/stable/generated/torch.optim.Optimizer.zero_grad.html.
 
     """
 
@@ -108,11 +120,13 @@ class SupervisedTrainer(Trainer):
         postprocessing: Optional[Transform] = None,
         key_train_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         train_handlers: Optional[Sequence] = None,
         amp: bool = False,
         event_names: Optional[List[Union[str, EventEnum]]] = None,
         event_to_attr: Optional[dict] = None,
         decollate: bool = True,
+        optim_set_to_none: bool = False,
     ) -> None:
         super().__init__(
             device=device,
@@ -125,6 +139,7 @@ class SupervisedTrainer(Trainer):
             postprocessing=postprocessing,
             key_metric=key_train_metric,
             additional_metrics=additional_metrics,
+            metric_cmp_fn=metric_cmp_fn,
             handlers=train_handlers,
             amp=amp,
             event_names=event_names,
@@ -136,6 +151,7 @@ class SupervisedTrainer(Trainer):
         self.optimizer = optimizer
         self.loss_function = loss_function
         self.inferer = SimpleInferer() if inferer is None else inferer
+        self.optim_set_to_none = optim_set_to_none
 
     def _iteration(self, engine: Engine, batchdata: Dict[str, torch.Tensor]):
         """
@@ -173,7 +189,12 @@ class SupervisedTrainer(Trainer):
             engine.fire_event(IterationEvents.LOSS_COMPLETED)
 
         self.network.train()
-        self.optimizer.zero_grad()
+        # `set_to_none` only work from PyTorch 1.7.0
+        if PT_BEFORE_1_7:
+            self.optimizer.zero_grad()
+        else:
+            self.optimizer.zero_grad(set_to_none=self.optim_set_to_none)
+
         if self.amp and self.scaler is not None:
             with torch.cuda.amp.autocast():
                 _compute_pred_loss()
@@ -232,11 +253,16 @@ class GanTrainer(Trainer):
             engine.state.metrics when epoch completed. key_train_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         train_handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
+        optim_set_to_none: when calling `optimizer.zero_grad()`, instead of setting to zero, set the grads to None.
+            more details: https://pytorch.org/docs/stable/generated/torch.optim.Optimizer.zero_grad.html.
 
     """
 
@@ -264,8 +290,10 @@ class GanTrainer(Trainer):
         postprocessing: Optional[Transform] = None,
         key_train_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         train_handlers: Optional[Sequence] = None,
         decollate: bool = True,
+        optim_set_to_none: bool = False,
     ):
         if not isinstance(train_data_loader, DataLoader):
             raise ValueError("train_data_loader must be PyTorch DataLoader.")
@@ -281,6 +309,7 @@ class GanTrainer(Trainer):
             iteration_update=iteration_update,
             key_metric=key_train_metric,
             additional_metrics=additional_metrics,
+            metric_cmp_fn=metric_cmp_fn,
             handlers=train_handlers,
             postprocessing=postprocessing,
             decollate=decollate,
@@ -297,6 +326,7 @@ class GanTrainer(Trainer):
         self.latent_shape = latent_shape
         self.g_prepare_batch = g_prepare_batch
         self.g_update_latents = g_update_latents
+        self.optim_set_to_none = optim_set_to_none
 
     def _iteration(
         self, engine: Engine, batchdata: Union[Dict, Sequence]
@@ -325,7 +355,11 @@ class GanTrainer(Trainer):
             1,
         )
         for _ in range(self.d_train_steps):
-            self.d_optimizer.zero_grad()
+            # `set_to_none` only work from PyTorch 1.7.0
+            if PT_BEFORE_1_7:
+                self.d_optimizer.zero_grad()
+            else:
+                self.d_optimizer.zero_grad(set_to_none=self.optim_set_to_none)
             dloss = self.d_loss_function(g_output, d_input)
             dloss.backward()
             self.d_optimizer.step()
@@ -335,7 +369,10 @@ class GanTrainer(Trainer):
         if self.g_update_latents:
             g_input = self.g_prepare_batch(batch_size, self.latent_shape, engine.state.device, engine.non_blocking)
         g_output = self.g_inferer(g_input, self.g_network)
-        self.g_optimizer.zero_grad()
+        if PT_BEFORE_1_7:
+            self.g_optimizer.zero_grad()
+        else:
+            self.g_optimizer.zero_grad(set_to_none=self.optim_set_to_none)
         g_loss = self.g_loss_function(g_output)
         g_loss.backward()
         self.g_optimizer.step()

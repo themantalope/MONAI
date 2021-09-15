@@ -9,7 +9,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Sequence, Union
+import warnings
+from typing import Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -17,7 +18,7 @@ import torch.nn as nn
 from monai.networks.blocks.convolutions import Convolution, ResidualUnit
 from monai.networks.layers.factories import Act, Norm
 from monai.networks.layers.simplelayers import SkipConnection
-from monai.utils import alias, export
+from monai.utils import alias, deprecated_arg, export
 
 __all__ = ["UNet", "Unet", "unet"]
 
@@ -25,9 +26,12 @@ __all__ = ["UNet", "Unet", "unet"]
 @export("monai.networks.nets")
 @alias("Unet")
 class UNet(nn.Module):
+    @deprecated_arg(
+        name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
+    )
     def __init__(
         self,
-        dimensions: int,
+        spatial_dims: int,
         in_channels: int,
         out_channels: int,
         channels: Sequence[int],
@@ -35,9 +39,11 @@ class UNet(nn.Module):
         kernel_size: Union[Sequence[int], int] = 3,
         up_kernel_size: Union[Sequence[int], int] = 3,
         num_res_units: int = 0,
-        act=Act.PRELU,
-        norm=Norm.INSTANCE,
-        dropout=0.0,
+        act: Union[Tuple, str] = Act.PRELU,
+        norm: Union[Tuple, str] = Norm.INSTANCE,
+        dropout: float = 0.0,
+        bias: bool = True,
+        dimensions: Optional[int] = None,
     ) -> None:
         """
         Enhanced version of UNet which has residual units implemented with the ResidualUnit class.
@@ -46,21 +52,54 @@ class UNet(nn.Module):
         Refer to: https://link.springer.com/chapter/10.1007/978-3-030-12029-0_40.
 
         Args:
-            dimensions: number of spatial dimensions.
+            spatial_dims: number of spatial dimensions.
             in_channels: number of input channels.
             out_channels: number of output channels.
-            channels: sequence of channels. Top block first.
-            strides: convolution stride.
-            kernel_size: convolution kernel size. Defaults to 3.
-            up_kernel_size: upsampling convolution kernel size. Defaults to 3.
+            channels: sequence of channels. Top block first. The length of `channels` should be no less than 2.
+            strides: sequence of convolution strides. The length of `stride` should equal to `len(channels) - 1`.
+            kernel_size: convolution kernel size, the value(s) should be odd. If sequence,
+                its length should equal to dimensions. Defaults to 3.
+            up_kernel_size: upsampling convolution kernel size, the value(s) should be odd. If sequence,
+                its length should equal to dimensions. Defaults to 3.
             num_res_units: number of residual units. Defaults to 0.
             act: activation type and arguments. Defaults to PReLU.
             norm: feature normalization type and arguments. Defaults to instance norm.
             dropout: dropout ratio. Defaults to no dropout.
+            bias: whether to have a bias term in convolution blocks. Defaults to True.
+                According to `Performance Tuning Guide <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>`_,
+                if a conv layer is directly followed by a batch norm layer, bias should be False.
+
+        .. deprecated:: 0.6.0
+            ``dimensions`` is deprecated, use ``spatial_dims`` instead.
+
+        Note: The acceptable spatial size of input data depends on the parameters of the network,
+            to set appropriate spatial size, please check the tutorial for more details:
+            https://github.com/Project-MONAI/tutorials/blob/master/modules/UNet_input_size_constrains.ipynb.
+            Typically, when using a stride of 2 in down / up sampling, the output dimensions are either half of the
+            input when downsampling, or twice when upsampling. In this case with N numbers of layers in the network,
+            the inputs must have spatial dimensions that are all multiples of 2^N.
+            Usually, applying `resize`, `pad` or `crop` transforms can help adjust the spatial size of input data.
+
         """
         super().__init__()
 
-        self.dimensions = dimensions
+        if len(channels) < 2:
+            raise ValueError("the length of `channels` should be no less than 2.")
+        delta = len(strides) - (len(channels) - 1)
+        if delta < 0:
+            raise ValueError("the length of `strides` should equal to `len(channels) - 1`.")
+        if delta > 0:
+            warnings.warn(f"`len(strides) > len(channels) - 1`, the last {delta} values of strides will not be used.")
+        if dimensions is not None:
+            spatial_dims = dimensions
+        if isinstance(kernel_size, Sequence):
+            if len(kernel_size) != spatial_dims:
+                raise ValueError("the length of `kernel_size` should equal to `dimensions`.")
+        if isinstance(up_kernel_size, Sequence):
+            if len(up_kernel_size) != spatial_dims:
+                raise ValueError("the length of `up_kernel_size` should equal to `dimensions`.")
+
+        self.dimensions = spatial_dims
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.channels = channels
@@ -71,6 +110,7 @@ class UNet(nn.Module):
         self.act = act
         self.norm = norm
         self.dropout = dropout
+        self.bias = bias
 
         def _create_block(
             inc: int, outc: int, channels: Sequence[int], strides: Sequence[int], is_top: bool
@@ -114,8 +154,10 @@ class UNet(nn.Module):
             strides: convolution stride.
             is_top: True if this is the top block.
         """
+        mod: nn.Module
         if self.num_res_units > 0:
-            return ResidualUnit(
+
+            mod = ResidualUnit(
                 self.dimensions,
                 in_channels,
                 out_channels,
@@ -125,8 +167,10 @@ class UNet(nn.Module):
                 act=self.act,
                 norm=self.norm,
                 dropout=self.dropout,
+                bias=self.bias,
             )
-        return Convolution(
+            return mod
+        mod = Convolution(
             self.dimensions,
             in_channels,
             out_channels,
@@ -135,7 +179,9 @@ class UNet(nn.Module):
             act=self.act,
             norm=self.norm,
             dropout=self.dropout,
+            bias=self.bias,
         )
+        return mod
 
     def _get_bottom_layer(self, in_channels: int, out_channels: int) -> nn.Module:
         """
@@ -164,6 +210,7 @@ class UNet(nn.Module):
             act=self.act,
             norm=self.norm,
             dropout=self.dropout,
+            bias=self.bias,
             conv_only=is_top and self.num_res_units == 0,
             is_transposed=True,
         )
@@ -179,6 +226,7 @@ class UNet(nn.Module):
                 act=self.act,
                 norm=self.norm,
                 dropout=self.dropout,
+                bias=self.bias,
                 last_conv_only=is_top,
             )
             conv = nn.Sequential(conv, ru)

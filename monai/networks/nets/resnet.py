@@ -10,15 +10,18 @@
 # limitations under the License.
 
 from functools import partial
-from typing import Any, Callable, List, Type, Union
+from typing import Any, Callable, List, Optional, Type, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from monai.networks.layers.factories import Conv, Norm, Pool
+from monai.networks.layers.utils import get_pool_layer
+from monai.utils.module import look_up_option
 
 __all__ = ["ResNet", "resnet10", "resnet18", "resnet34", "resnet50", "resnet101", "resnet152", "resnet200"]
+
+from monai.utils import deprecated_arg
 
 
 def get_inplanes():
@@ -154,17 +157,20 @@ class ResNet(nn.Module):
     Args:
         block: which ResNet block to use, either Basic or Bottleneck.
         layers: how many layers to use.
-        block_inplanes: determine the size of planes at each step. Also tuneable with widen_factor.
+        block_inplanes: determine the size of planes at each step. Also tunable with widen_factor.
         spatial_dims: number of spatial dimensions of the input image.
         n_input_channels: number of input channels for first convolutional layer.
         conv1_t_size: size of first convolution layer, determines kernel and padding.
         conv1_t_stride: stride of first convolution layer.
         no_max_pool: bool argument to determine if to use maxpool layer.
-        shortcut_type: which downsample block to use.
+        shortcut_type: which downsample block to use. Options are 'A', 'B', default to 'B'.
+            - 'A': using `self._downsample_basic_block`.
+            - 'B': kernel_size 1 conv + norm.
         widen_factor: widen output for each layer.
-        n_classes: number of output (classifications)
+        num_classes: number of output (classifications)
     """
 
+    @deprecated_arg("n_classes", since="0.6")
     def __init__(
         self,
         block: Type[Union[ResNetBlock, ResNetBottleneck]],
@@ -177,11 +183,15 @@ class ResNet(nn.Module):
         no_max_pool: bool = False,
         shortcut_type: str = "B",
         widen_factor: float = 1.0,
-        n_classes: int = 400,
+        num_classes: int = 400,
         feed_forward: bool = True,
+        n_classes: Optional[int] = None,
     ) -> None:
 
         super(ResNet, self).__init__()
+        # in case the new num_classes is default but you still call deprecated n_classes
+        if n_classes is not None and num_classes == 400:
+            num_classes = n_classes
 
         conv_type: Type[Union[nn.Conv1d, nn.Conv2d, nn.Conv3d]] = Conv[Conv.CONV, spatial_dims]
         norm_type: Type[Union[nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d]] = Norm[Norm.BATCH, spatial_dims]
@@ -191,7 +201,7 @@ class ResNet(nn.Module):
         ]
 
         block_avgpool = get_avgpool()
-        conv1_kernel, conv1_stride, con1_padding = get_conv1(conv1_t_size, conv1_t_stride)
+        conv1_kernel, conv1_stride, conv1_padding = get_conv1(conv1_t_size, conv1_t_stride)
         block_inplanes = [int(x * widen_factor) for x in block_inplanes]
 
         self.in_planes = block_inplanes[0]
@@ -202,7 +212,7 @@ class ResNet(nn.Module):
             self.in_planes,
             kernel_size=conv1_kernel[spatial_dims],
             stride=conv1_stride[spatial_dims],
-            padding=con1_padding[spatial_dims],
+            padding=conv1_padding[spatial_dims],
             bias=False,
         )
         self.bn1 = norm_type(self.in_planes)
@@ -215,7 +225,7 @@ class ResNet(nn.Module):
         self.avgpool = avgp_type(block_avgpool[spatial_dims])
 
         if feed_forward:
-            self.fc = nn.Linear(block_inplanes[3] * block.expansion, n_classes)
+            self.fc = nn.Linear(block_inplanes[3] * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, conv_type):
@@ -227,14 +237,9 @@ class ResNet(nn.Module):
                 nn.init.constant_(torch.as_tensor(m.bias), 0)
 
     def _downsample_basic_block(self, x: torch.Tensor, planes: int, stride: int, spatial_dims: int = 3) -> torch.Tensor:
-        assert spatial_dims == 3
-        out: torch.Tensor = F.avg_pool3d(x, kernel_size=1, stride=stride)
-        zero_pads = torch.zeros(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4))
-        if isinstance(out.data, torch.FloatTensor):
-            zero_pads = zero_pads.cuda()
-
+        out: torch.Tensor = get_pool_layer(("avg", {"kernel_size": 1, "stride": stride}), spatial_dims=spatial_dims)(x)
+        zero_pads = torch.zeros(out.size(0), planes - out.size(1), *out.shape[2:], dtype=out.dtype, device=out.device)
         out = torch.cat([out.data, zero_pads], dim=1)
-
         return out
 
     def _make_layer(
@@ -252,9 +257,12 @@ class ResNet(nn.Module):
 
         downsample: Union[nn.Module, partial, None] = None
         if stride != 1 or self.in_planes != planes * block.expansion:
-            if shortcut_type == "A":
+            if look_up_option(shortcut_type, {"A", "B"}) == "A":
                 downsample = partial(
-                    self._downsample_basic_block, planes=planes * block.expansion, kernel_size=1, stride=stride
+                    self._downsample_basic_block,
+                    planes=planes * block.expansion,
+                    stride=stride,
+                    spatial_dims=spatial_dims,
                 )
             else:
                 downsample = nn.Sequential(
@@ -262,12 +270,16 @@ class ResNet(nn.Module):
                     norm_type(planes * block.expansion),
                 )
 
-        layers = []
-        layers.append(
+        layers = [
             block(
-                in_planes=self.in_planes, planes=planes, spatial_dims=spatial_dims, stride=stride, downsample=downsample
+                in_planes=self.in_planes,
+                planes=planes,
+                spatial_dims=spatial_dims,
+                stride=stride,
+                downsample=downsample,
             )
-        )
+        ]
+
         self.in_planes = planes * block.expansion
         for _i in range(1, blocks):
             layers.append(block(self.in_planes, planes, spatial_dims=spatial_dims))
@@ -303,12 +315,15 @@ def _resnet(
     progress: bool,
     **kwargs: Any,
 ) -> ResNet:
-    model = ResNet(block, layers, block_inplanes, **kwargs)
+    model: ResNet = ResNet(block, layers, block_inplanes, **kwargs)
     if pretrained:
         # Author of paper zipped the state_dict on googledrive,
         # so would need to download, unzip and read (2.8gb file for a ~150mb state dict).
         # Would like to load dict from url but need somewhere to save the state dicts.
-        raise NotImplementedError("Currently not implemented, see comments in source code")
+        raise NotImplementedError(
+            "Currently not implemented. You need to manually download weights provided by the paper's author"
+            " and load then to the model with `state_dict`. See https://github.com/Tencent/MedicalNet"
+        )
     return model
 
 

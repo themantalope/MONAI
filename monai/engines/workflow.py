@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from monai.config import IgniteInfo
-from monai.data import decollate_batch, rep_scalar_to_batch
-from monai.engines.utils import IterationEvents, default_prepare_batch
+from monai.engines.utils import IterationEvents, default_metric_cmp_fn, default_prepare_batch
+from monai.transforms import Decollated, Transform
 from monai.utils import ensure_tuple, min_version, optional_import
 
 from .utils import engine_apply_transform
@@ -63,16 +63,20 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
             engine.state.metrics when epoch completed. key_metric is the main metric to compare and save the
             checkpoint into files.
         additional_metrics: more Ignite metrics that also attach to Ignite Engine.
+        metric_cmp_fn: function to compare current key metric with previous best key metric value,
+            it must accept 2 args (current_metric, previous_best) and return a bool result: if `True`, will update
+            `best_metric` and `best_metric_epoch` with current metric and epoch, default to `greater than`.
         handlers: every handler is a set of Ignite Event-Handlers, must have `attach` function, like:
             CheckpointHandler, StatsHandler, SegmentationSaver, etc.
         amp: whether to enable auto-mixed-precision training or inference, default is False.
         event_names: additional custom ignite events that will register to the engine.
             new events can be a list of str or `ignite.engine.events.EventEnum`.
         event_to_attr: a dictionary to map an event to a state attribute, then add to `engine.state`.
-            for more details, check: https://github.com/pytorch/ignite/blob/v0.4.4.post1/ignite/engine/engine.py#L160
+            for more details, check: https://pytorch.org/ignite/generated/ignite.engine.engine.Engine.html
+            #ignite.engine.engine.Engine.register_events.
         decollate: whether to decollate the batch-first data to a list of data after model computation,
-            default to `True`. if `False`, postprocessing will be ignored as the `monai.transforms` module
-            assumes channel-first data.
+            recommend `decollate=True` when `postprocessing` uses components from `monai.transforms`.
+            default to `True`.
 
     Raises:
         TypeError: When ``device`` is not a ``torch.Device``.
@@ -94,6 +98,7 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
         postprocessing: Optional[Callable] = None,
         key_metric: Optional[Dict[str, Metric]] = None,
         additional_metrics: Optional[Dict[str, Metric]] = None,
+        metric_cmp_fn: Callable = default_metric_cmp_fn,
         handlers: Optional[Sequence] = None,
         amp: bool = False,
         event_names: Optional[List[Union[str, EventEnum]]] = None,
@@ -142,7 +147,9 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
         self.data_loader = data_loader
         self.non_blocking = non_blocking
         self.prepare_batch = prepare_batch
+        self.metric_cmp_fn = metric_cmp_fn
         self.amp = amp
+        self.scaler: Optional[torch.cuda.amp.GradScaler] = None
 
         if event_names is None:
             event_names = [IterationEvents]
@@ -160,9 +167,11 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
 
         if decollate:
             self._register_decollate()
-            # postprocessing can only work if `decollate=True`
-            if postprocessing is not None:
-                self._register_postprocessing(postprocessing)
+
+        if postprocessing is not None:
+            if not decollate and isinstance(postprocessing, Transform):
+                warnings.warn("MONAI transforms expect `channel-first` data, `decollate=False` may not work here.")
+            self._register_postprocessing(postprocessing)
         if key_metric is not None:
             self._register_metrics(key_metric, additional_metrics)
         if handlers is not None:
@@ -170,15 +179,16 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
 
     def _register_decollate(self):
         """
-        Register the decollate operation for batch data, will execure after model forward and loss forward.
+        Register the decollate operation for batch data, will execute after model forward and loss forward.
 
         """
 
         @self.on(IterationEvents.MODEL_COMPLETED)
         def _decollate_data(engine: Engine) -> None:
             # replicate the scalar values to make sure all the items have batch dimension, then decollate
-            engine.state.batch = decollate_batch(rep_scalar_to_batch(engine.state.batch), detach=True)
-            engine.state.output = decollate_batch(rep_scalar_to_batch(engine.state.output), detach=True)
+            transform = Decollated(keys=None, detach=True)
+            engine.state.batch = transform(engine.state.batch)
+            engine.state.output = transform(engine.state.output)
 
     def _register_postprocessing(self, posttrans: Callable):
         """
@@ -189,7 +199,11 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
         @self.on(IterationEvents.MODEL_COMPLETED)
         def _run_postprocessing(engine: Engine) -> None:
             if not isinstance(engine.state.batch, list) or not isinstance(engine.state.output, list):
-                warnings.warn("postprocessing requires `engine.state.batch` and `engine.state.outout` to be lists.")
+                engine.state.batch, engine.state.output = engine_apply_transform(
+                    batch=engine.state.batch,
+                    output=engine.state.output,
+                    transform=posttrans,
+                )
             else:
                 for i, (b, o) in enumerate(zip(engine.state.batch, engine.state.output)):
                     engine.state.batch[i], engine.state.output[i] = engine_apply_transform(b, o, posttrans)
@@ -214,7 +228,7 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
         def _compare_metrics(engine: Engine) -> None:
             if engine.state.key_metric_name is not None:
                 current_val_metric = engine.state.metrics[engine.state.key_metric_name]
-                if current_val_metric > engine.state.best_metric:
+                if self.metric_cmp_fn(current_val_metric, engine.state.best_metric):
                     self.logger.info(f"Got new best metric of {engine.state.key_metric_name}: {current_val_metric}")
                     engine.state.best_metric = current_val_metric
                     engine.state.best_metric_epoch = engine.state.epoch

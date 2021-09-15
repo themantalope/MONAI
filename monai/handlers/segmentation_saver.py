@@ -17,7 +17,7 @@ import numpy as np
 from monai.config import DtypeLike, IgniteInfo
 from monai.data import decollate_batch
 from monai.transforms import SaveImage
-from monai.utils import GridSampleMode, GridSamplePadMode, InterpolateMode, min_version, optional_import
+from monai.utils import GridSampleMode, GridSamplePadMode, InterpolateMode, deprecated, min_version, optional_import
 
 Events, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Events")
 if TYPE_CHECKING:
@@ -26,6 +26,7 @@ else:
     Engine, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Engine")
 
 
+@deprecated(since="0.6.0", removed="0.7.0", msg_suffix="Please consider using `SaveImage[d]` transform instead.")
 class SegmentationSaver:
     """
     Event handler triggered on completing every iteration to save the segmentation predictions into files.
@@ -35,6 +36,9 @@ class SegmentationSaver:
     where the input image name is extracted from the meta data dictionary. If no meta data provided,
     use index from 0 as the filename prefix.
     The predictions can be PyTorch Tensor with [B, C, H, W, [D]] shape or a list of Tensor without batch dim.
+
+    .. deprecated:: 0.6.0
+        Use :class:`monai.transforms.SaveImage` or :class:`monai.transforms.SaveImaged` instead.
 
     """
 
@@ -51,6 +55,7 @@ class SegmentationSaver:
         output_dtype: DtypeLike = np.float32,
         squeeze_end_dims: bool = True,
         data_root_dir: str = "",
+        separate_folder: bool = True,
         batch_transform: Callable = lambda x: x,
         output_transform: Callable = lambda x: x,
         name: Optional[str] = None,
@@ -102,6 +107,9 @@ class SegmentationSaver:
                 output_dir: /output,
                 data_root_dir: /foo/bar,
                 output will be: /output/test1/image/image_seg.nii.gz
+            separate_folder: whether to save every file in a separate folder, for example: if input filename is
+                `image.nii`, postfix is `seg` and folder_path is `output`, if `True`, save as:
+                `output/image/image_seg.nii`, if `False`, save as `output/image_seg.nii`. default to `True`.
             batch_transform: a callable that is used to extract the `meta_data` dictionary of the input images
                 from `ignite.engine.state.batch`. the purpose is to extract necessary information from the meta data:
                 filename, affine, original_shape, etc.
@@ -123,6 +131,7 @@ class SegmentationSaver:
             output_dtype=output_dtype,
             squeeze_end_dims=squeeze_end_dims,
             data_root_dir=data_root_dir,
+            separate_folder=separate_folder,
         )
         self.batch_transform = batch_transform
         self.output_transform = output_transform

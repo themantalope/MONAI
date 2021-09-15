@@ -98,7 +98,7 @@ def run_training_test(root_dir, device="cuda:0", amp=False, num_workers=4):
 
     # create UNet, DiceLoss and Adam optimizer
     net = monai.networks.nets.UNet(
-        dimensions=3,
+        spatial_dims=3,
         in_channels=1,
         out_channels=1,
         channels=(16, 32, 64, 128, 256),
@@ -112,6 +112,7 @@ def run_training_test(root_dir, device="cuda:0", amp=False, num_workers=4):
 
     val_postprocessing = Compose(
         [
+            ToTensord(keys=["pred", "label"]),
             Activationsd(keys="pred", sigmoid=True),
             AsDiscreted(keys="pred", threshold_values=True),
             KeepLargestConnectedComponentd(keys="pred", applied_labels=[1]),
@@ -145,12 +146,14 @@ def run_training_test(root_dir, device="cuda:0", amp=False, num_workers=4):
             "val_mean_dice": MeanDice(include_background=True, output_transform=from_engine(["pred", "label"]))
         },
         additional_metrics={"val_acc": Accuracy(output_transform=from_engine(["pred", "label"]))},
+        metric_cmp_fn=lambda cur, prev: cur >= prev,  # if greater or equal, treat as new best metric
         val_handlers=val_handlers,
         amp=True if amp else False,
     )
 
     train_postprocessing = Compose(
         [
+            ToTensord(keys=["pred", "label"]),
             Activationsd(keys="pred", sigmoid=True),
             AsDiscreted(keys="pred", threshold_values=True),
             KeepLargestConnectedComponentd(keys="pred", applied_labels=[1]),
@@ -179,9 +182,9 @@ def run_training_test(root_dir, device="cuda:0", amp=False, num_workers=4):
     train_handlers = [
         LrScheduleHandler(lr_scheduler=lr_scheduler, print_lr=True),
         ValidationHandler(validator=evaluator, interval=2, epoch_level=True),
-        StatsHandler(tag_name="train_loss", output_transform=lambda x: x[0]["loss"]),
+        StatsHandler(tag_name="train_loss", output_transform=from_engine("loss", first=True)),
         TensorBoardStatsHandler(
-            summary_writer=summary_writer, tag_name="train_loss", output_transform=lambda x: x[0]["loss"]
+            summary_writer=summary_writer, tag_name="train_loss", output_transform=from_engine("loss", first=True)
         ),
         CheckpointSaver(save_dir=root_dir, save_dict={"net": net, "opt": opt}, save_interval=2, epoch_level=True),
         _TestTrainIterEvents(),
@@ -199,6 +202,7 @@ def run_training_test(root_dir, device="cuda:0", amp=False, num_workers=4):
         key_train_metric={"train_acc": Accuracy(output_transform=from_engine(["pred", "label"]))},
         train_handlers=train_handlers,
         amp=True if amp else False,
+        optim_set_to_none=True,
     )
     trainer.run()
 
@@ -226,7 +230,7 @@ def run_inference_test(root_dir, model_file, device="cuda:0", amp=False, num_wor
 
     # create UNet, DiceLoss and Adam optimizer
     net = monai.networks.nets.UNet(
-        dimensions=3,
+        spatial_dims=3,
         in_channels=1,
         out_channels=1,
         channels=(16, 32, 64, 128, 256),
@@ -236,6 +240,7 @@ def run_inference_test(root_dir, model_file, device="cuda:0", amp=False, num_wor
 
     val_postprocessing = Compose(
         [
+            ToTensord(keys=["pred", "label"]),
             Activationsd(keys="pred", sigmoid=True),
             AsDiscreted(keys="pred", threshold_values=True),
             KeepLargestConnectedComponentd(keys="pred", applied_labels=[1]),

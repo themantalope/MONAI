@@ -160,6 +160,16 @@ Post processing
 .. autoclass:: PostProcessing
     :members:
 
+Decollate batch
+---------------
+.. autoclass:: DecollateBatch
+    :members:
+
+NVTX Handlers
+-------------
+.. automodule:: monai.handlers.nvtx_handlers
+  :members:
+
 Utilities
 ---------
 .. automodule:: monai.handlers.utils

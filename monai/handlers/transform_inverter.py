@@ -17,7 +17,7 @@ import torch
 from monai.config import IgniteInfo, KeysCollection
 from monai.engines.utils import CommonKeys, IterationEvents
 from monai.transforms import Invertd, InvertibleTransform
-from monai.utils import ensure_tuple, ensure_tuple_rep, min_version, optional_import
+from monai.utils import deprecated, ensure_tuple, ensure_tuple_rep, min_version, optional_import
 
 Events, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Events")
 if TYPE_CHECKING:
@@ -26,6 +26,7 @@ else:
     Engine, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Engine")
 
 
+@deprecated(since="0.6.0", removed="0.7.0", msg_suffix="Please consider using `Invertd` transform instead.")
 class TransformInverter:
     """
     Ignite handler to automatically invert `transforms`.
@@ -34,6 +35,9 @@ class TransformInverter:
     The inverted data is in-place saved back to `engine.state.output` with key: "{output_key}".
     And the inverted meta dict will be stored in `engine.state.batch`
     with key: "{meta_keys}" or "{key}_{meta_key_postfix}".
+
+    .. deprecated:: 0.6.0
+        Use :class:`monai.transforms.Invertd` instead.
 
     """
 
@@ -86,9 +90,6 @@ class TransformInverter:
                 each matches to the `output_keys` data.
             post_func: post processing for the inverted data, should be a callable function.
                 it also can be a list of callable, each matches to the `output_keys` data.
-            num_workers: number of workers when run data loader for inverse transforms,
-                default to 0 as only run one iteration and multi-processing may be even slower.
-                Set to `None`, to use the `num_workers` of the input transform data loader.
 
         """
         self.inverter = Invertd(
@@ -102,7 +103,6 @@ class TransformInverter:
             to_tensor=to_tensor,
             device=device,
             post_func=post_func,
-            num_workers=num_workers,
         )
         self.output_keys = ensure_tuple(output_keys)
         self.meta_keys = ensure_tuple_rep(None, len(self.output_keys)) if meta_keys is None else ensure_tuple(meta_keys)
@@ -123,7 +123,7 @@ class TransformInverter:
             engine: Ignite Engine, it can be a trainer, validator or evaluator.
         """
         if not isinstance(engine.state.batch, list) or not isinstance(engine.state.output, list):
-            warnings.warn("inverter requires `engine.state.batch` and `engine.state.outout` to be lists.")
+            warnings.warn("inverter requires `engine.state.batch` and `engine.state.output` to be lists.")
         else:
             for i, (b, o) in enumerate(zip(engine.state.batch, engine.state.output)):
                 # combine `batch` and `output` to temporarily act as 1 dict for postprocessing

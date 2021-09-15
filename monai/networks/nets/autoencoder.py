@@ -16,14 +16,22 @@ import torch.nn as nn
 
 from monai.networks.blocks import Convolution, ResidualUnit
 from monai.networks.layers.factories import Act, Norm
+from monai.utils import deprecated_arg
 
 __all__ = ["AutoEncoder"]
 
 
 class AutoEncoder(nn.Module):
+    """
+    Base class for the architecture implementing :py:class:`monai.networks.nets.VarAutoEncoder`.
+    """
+
+    @deprecated_arg(
+        name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
+    )
     def __init__(
         self,
-        dimensions: int,
+        spatial_dims: int,
         in_channels: int,
         out_channels: int,
         channels: Sequence[int],
@@ -37,10 +45,16 @@ class AutoEncoder(nn.Module):
         act: Optional[Union[Tuple, str]] = Act.PRELU,
         norm: Union[Tuple, str] = Norm.INSTANCE,
         dropout: Optional[Union[Tuple, str, float]] = None,
+        bias: bool = True,
+        dimensions: Optional[int] = None,
     ) -> None:
+        """
+        .. deprecated:: 0.6.0
+            ``dimensions`` is deprecated, use ``spatial_dims`` instead.
+        """
 
         super().__init__()
-        self.dimensions = dimensions
+        self.dimensions = spatial_dims if dimensions is None else dimensions
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.channels = list(channels)
@@ -51,6 +65,7 @@ class AutoEncoder(nn.Module):
         self.act = act
         self.norm = norm
         self.dropout = dropout
+        self.bias = bias
         self.num_inter_units = num_inter_units
         self.inter_channels = inter_channels if inter_channels is not None else []
         self.inter_dilations = list(inter_dilations or [1] * len(self.inter_channels))
@@ -93,7 +108,7 @@ class AutoEncoder(nn.Module):
             for i, (dc, di) in enumerate(zip(self.inter_channels, self.inter_dilations)):
                 if self.num_inter_units > 0:
                     unit = ResidualUnit(
-                        dimensions=self.dimensions,
+                        spatial_dims=self.dimensions,
                         in_channels=layer_channels,
                         out_channels=dc,
                         strides=1,
@@ -103,10 +118,11 @@ class AutoEncoder(nn.Module):
                         norm=self.norm,
                         dropout=self.dropout,
                         dilation=di,
+                        bias=self.bias,
                     )
                 else:
                     unit = Convolution(
-                        dimensions=self.dimensions,
+                        spatial_dims=self.dimensions,
                         in_channels=layer_channels,
                         out_channels=dc,
                         strides=1,
@@ -115,6 +131,7 @@ class AutoEncoder(nn.Module):
                         norm=self.norm,
                         dropout=self.dropout,
                         dilation=di,
+                        bias=self.bias,
                     )
 
                 intermediate.add_module("inter_%i" % i, unit)
@@ -137,9 +154,10 @@ class AutoEncoder(nn.Module):
 
     def _get_encode_layer(self, in_channels: int, out_channels: int, strides: int, is_last: bool) -> nn.Module:
 
+        mod: nn.Module
         if self.num_res_units > 0:
-            return ResidualUnit(
-                dimensions=self.dimensions,
+            mod = ResidualUnit(
+                spatial_dims=self.dimensions,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 strides=strides,
@@ -148,10 +166,11 @@ class AutoEncoder(nn.Module):
                 act=self.act,
                 norm=self.norm,
                 dropout=self.dropout,
+                bias=self.bias,
                 last_conv_only=is_last,
             )
-        return Convolution(
-            dimensions=self.dimensions,
+        mod = Convolution(
+            spatial_dims=self.dimensions,
             in_channels=in_channels,
             out_channels=out_channels,
             strides=strides,
@@ -159,15 +178,17 @@ class AutoEncoder(nn.Module):
             act=self.act,
             norm=self.norm,
             dropout=self.dropout,
+            bias=self.bias,
             conv_only=is_last,
         )
+        return mod
 
     def _get_decode_layer(self, in_channels: int, out_channels: int, strides: int, is_last: bool) -> nn.Sequential:
 
         decode = nn.Sequential()
 
         conv = Convolution(
-            dimensions=self.dimensions,
+            spatial_dims=self.dimensions,
             in_channels=in_channels,
             out_channels=out_channels,
             strides=strides,
@@ -175,6 +196,7 @@ class AutoEncoder(nn.Module):
             act=self.act,
             norm=self.norm,
             dropout=self.dropout,
+            bias=self.bias,
             conv_only=is_last and self.num_res_units == 0,
             is_transposed=True,
         )
@@ -183,7 +205,7 @@ class AutoEncoder(nn.Module):
 
         if self.num_res_units > 0:
             ru = ResidualUnit(
-                dimensions=self.dimensions,
+                spatial_dims=self.dimensions,
                 in_channels=out_channels,
                 out_channels=out_channels,
                 strides=1,
@@ -192,6 +214,7 @@ class AutoEncoder(nn.Module):
                 act=self.act,
                 norm=self.norm,
                 dropout=self.dropout,
+                bias=self.bias,
                 last_conv_only=is_last,
             )
 

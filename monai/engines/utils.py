@@ -30,13 +30,14 @@ __all__ = [
     "default_prepare_batch",
     "default_make_latent",
     "engine_apply_transform",
+    "default_metric_cmp_fn",
 ]
 
 
 class IterationEvents(EventEnum):
     """
     Additional Events engine can register and trigger in the iteration process.
-    Refer to the example in ignite: https://github.com/pytorch/ignite/blob/master/ignite/engine/events.py#L146
+    Refer to the example in ignite: https://pytorch.org/ignite/generated/ignite.engine.events.EventEnum.html.
     These Events can be triggered during training iteration:
     `FORWARD_COMPLETED` is the Event when `network(image, label)` completed.
     `LOSS_COMPLETED` is the Event when `loss(pred, label)` completed.
@@ -86,7 +87,7 @@ def get_devices_spec(devices: Optional[Sequence[torch.device]] = None) -> List[t
     if devices is None:
         devices = [torch.device(f"cuda:{d:d}") for d in range(torch.cuda.device_count())]
 
-        if len(devices) == 0:
+        if not devices:
             raise RuntimeError("No GPU devices available.")
 
     elif len(devices) == 0:
@@ -105,7 +106,8 @@ def default_prepare_batch(
 ) -> Union[Tuple[torch.Tensor, Optional[torch.Tensor]], torch.Tensor]:
     """
     Default function to prepare the data for current iteration.
-    Refer to ignite: https://github.com/pytorch/ignite/blob/v0.4.2/ignite/engine/__init__.py#L28.
+    Refer to ignite: https://pytorch.org/ignite/v0.4.5/generated/ignite.engine.create_supervised_trainer.html
+    #ignite.engine.create_supervised_trainer.
 
     Returns:
         image, label(optional).
@@ -113,7 +115,7 @@ def default_prepare_batch(
     """
     if not isinstance(batchdata, dict):
         raise AssertionError("default prepare_batch expects dictionary input data.")
-    if isinstance(batchdata.get(CommonKeys.LABEL, None), torch.Tensor):
+    if isinstance(batchdata.get(CommonKeys.LABEL), torch.Tensor):
         return (
             batchdata[CommonKeys.IMAGE].to(device=device, non_blocking=non_blocking),
             batchdata[CommonKeys.LABEL].to(device=device, non_blocking=non_blocking),
@@ -158,3 +160,15 @@ def engine_apply_transform(batch: Any, output: Any, transform: Callable[..., Dic
         output = apply_transform(transform, output)
 
     return batch, output
+
+
+def default_metric_cmp_fn(current_metric: float, prev_best: float) -> bool:
+    """
+    The default function to compare metric values between current metric and previous best metric.
+
+    Args:
+        current_metric: metric value of current round computation.
+        prev_best: the best metric value of previous rounds to compare with.
+
+    """
+    return current_metric > prev_best

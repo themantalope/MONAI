@@ -10,19 +10,16 @@
 # limitations under the License.
 
 import inspect
-import re
 import warnings
 from functools import wraps
-from threading import Lock
 from types import FunctionType
 from typing import Optional
+
+from monai.utils.module import version_leq
 
 from .. import __version__
 
 __all__ = ["deprecated", "deprecated_arg", "DeprecatedError"]
-
-warned_set = set()
-warned_lock = Lock()
 
 
 class DeprecatedError(Exception):
@@ -31,41 +28,9 @@ class DeprecatedError(Exception):
 
 def warn_deprecated(obj, msg):
     """
-    Issue the warning message `msg` only once per process for the given object `obj`. When this function is called
-    and `obj` is not in `warned_set`, it is added and the warning issued, if it's already present nothing happens.
+    Issue the warning message `msg`.
     """
-    if obj not in warned_set:  # ensure warning is issued only once per process
-        warned_set.add(obj)
-        warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
-
-
-def version_leq(lhs, rhs):
-    """Returns True if version `lhs` is earlier or equal to `rhs`."""
-
-    def _try_cast(val):
-        val = val.strip()
-        try:
-            m = re.match("(\\d+)(.*)", val)
-            if m is not None:
-                val = m.groups()[0]
-
-            return int(val)
-        except ValueError:
-            return val
-
-    # remove git version suffixes if present
-    lhs = lhs.split("+", 1)[0]
-    rhs = rhs.split("+", 1)[0]
-
-    # parse the version strings in this basic way to avoid needing the `packaging` package
-    lhs = map(_try_cast, lhs.split("."))
-    rhs = map(_try_cast, rhs.split("."))
-
-    for l, r in zip(lhs, rhs):
-        if l != r:
-            return l < r
-
-    return True
+    warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
 
 
 def deprecated(
@@ -74,27 +39,45 @@ def deprecated(
     """
     Marks a function or class as deprecated. If `since` is given this should be a version at or earlier than the
     current version and states at what version of the definition was marked as deprecated. If `removed` is given
-    this can be any version and marks when the definition was removed. When the decorated definition is called,
-    that is when the function is called or the class instantiated, a warning is issued if `since` is given and
-    the current version is at or later than that given. An exception is instead raised if `removed` is given and
-    the current version is at or later than that, or if neither `since` nor `removed` is provided.
+    this can be any version and marks when the definition was removed.
+
+    When the decorated definition is called, that is when the function is called or the class instantiated,
+    a `DeprecationWarning` is issued if `since` is given and the current version is at or later than that given.
+    a `DeprecatedError` exception is instead raised if `removed` is given and the current version is at or later
+    than that, or if neither `since` nor `removed` is provided.
+
+    The relevant docstring of the deprecating function should also be updated accordingly,
+    using the Sphinx directives such as `.. versionchanged:: version` and `.. deprecated:: version`.
+    https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#directive-versionadded
 
     Args:
-        since: version at which the definition was marked deprecated but not removed
-        removed: version at which the definition was removed and no longer usable
-        msg_suffix: message appended to warning/exception detailing reasons for deprecation and what to use instead
-        version_val: (used for testing) version to compare since and removed against, default is MONAI version
+        since: version at which the definition was marked deprecated but not removed.
+        removed: version at which the definition was removed and no longer usable.
+        msg_suffix: message appended to warning/exception detailing reasons for deprecation and what to use instead.
+        version_val: (used for testing) version to compare since and removed against, default is MONAI version.
 
     Returns:
         Decorated definition which warns or raises exception when used
     """
 
-    is_deprecated = since is not None and version_leq(since, version_val)
-    is_removed = removed is not None and version_leq(removed, version_val)
+    # if version_val.startswith("0+"):
+    #     # version unknown, set version_val to a large value (assuming the latest version)
+    #     version_val = "100"
+    if since is not None and removed is not None and not version_leq(since, removed):
+        raise ValueError(f"since must be less or equal to removed, got since={since}, removed={removed}.")
     is_not_yet_deprecated = since is not None and version_val != since and version_leq(version_val, since)
-
     if is_not_yet_deprecated:
+        # smaller than `since`, do nothing
         return lambda obj: obj
+
+    if since is None and removed is None:
+        # raise a DeprecatedError directly
+        is_removed = True
+        is_deprecated = True
+    else:
+        # compare the numbers
+        is_deprecated = since is not None and version_leq(since, version_val)
+        is_removed = removed is not None and version_leq(removed, version_val)
 
     def _decorator(obj):
         is_func = isinstance(obj, FunctionType)
@@ -115,18 +98,17 @@ def deprecated(
 
         @wraps(call_obj)
         def _wrapper(*args, **kwargs):
+            if is_removed:
+                raise DeprecatedError(msg)
             if is_deprecated:
                 warn_deprecated(obj, msg)
-            else:
-                raise DeprecatedError(msg)
 
             return call_obj(*args, **kwargs)
 
         if is_func:
             return _wrapper
-        else:
-            obj.__init__ = _wrapper
-            return obj
+        obj.__init__ = _wrapper
+        return obj
 
     return _decorator
 
@@ -137,28 +119,53 @@ def deprecated_arg(
     removed: Optional[str] = None,
     msg_suffix: str = "",
     version_val: str = __version__,
+    new_name: Optional[str] = None,
 ):
     """
     Marks a particular named argument of a callable as deprecated. The same conditions for `since` and `removed` as
     described in the `deprecated` decorator.
 
+    When the decorated definition is called, that is when the function is called or the class instantiated with args,
+    a `DeprecationWarning` is issued if `since` is given and the current version is at or later than that given.
+    a `DeprecatedError` exception is instead raised if `removed` is given and the current version is at or later
+    than that, or if neither `since` nor `removed` is provided.
+
+    The relevant docstring of the deprecating function should also be updated accordingly,
+    using the Sphinx directives such as `.. versionchanged:: version` and `.. deprecated:: version`.
+    https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#directive-versionadded
+
+    In the current implementation type annotations are not preserved.
+
+
     Args:
-        name: name of position or keyword argument to mark as deprecated
-        since: version at which the argument was marked deprecated but not removed
-        removed: version at which the argument was removed and no longer usable
-        msg_suffix: message appended to warning/exception detailing reasons for deprecation and what to use instead
-        version_val: (used for testing) version to compare since and removed against, default is MONAI version
+        name: name of position or keyword argument to mark as deprecated.
+        since: version at which the argument was marked deprecated but not removed.
+        removed: version at which the argument was removed and no longer usable.
+        msg_suffix: message appended to warning/exception detailing reasons for deprecation and what to use instead.
+        version_val: (used for testing) version to compare since and removed against, default is MONAI version.
+        new_name: name of position or keyword argument to replace the deprecated argument.
 
     Returns:
-        Decorated callable which warns or raises exception when deprecated argument used
+        Decorated callable which warns or raises exception when deprecated argument used.
     """
 
-    is_deprecated = since is not None and version_leq(since, version_val)
-    is_removed = removed is not None and version_leq(removed, version_val)
+    if version_val.startswith("0+") or not f"{version_val}".strip()[0].isdigit():
+        # version unknown, set version_val to a large value (assuming the latest version)
+        version_val = "100"
+    if since is not None and removed is not None and not version_leq(since, removed):
+        raise ValueError(f"since must be less or equal to removed, got since={since}, removed={removed}.")
     is_not_yet_deprecated = since is not None and version_val != since and version_leq(version_val, since)
-
     if is_not_yet_deprecated:
+        # smaller than `since`, do nothing
         return lambda obj: obj
+    if since is None and removed is None:
+        # raise a DeprecatedError directly
+        is_removed = True
+        is_deprecated = True
+    else:
+        # compare the numbers
+        is_deprecated = since is not None and version_leq(since, version_val)
+        is_removed = removed is not None and version_leq(removed, version_val)
 
     def _decorator(func):
         argname = f"{func.__name__}_{name}"
@@ -180,16 +187,19 @@ def deprecated_arg(
 
         @wraps(func)
         def _wrapper(*args, **kwargs):
+            if new_name is not None and name in kwargs:
+                # replace the deprecated arg "name" with "new_name"
+                kwargs[new_name] = kwargs[name]
             binding = sig.bind(*args, **kwargs).arguments
 
             positional_found = name in binding
             kw_found = "kwargs" in binding and name in binding["kwargs"]
 
             if positional_found or kw_found:
+                if is_removed:
+                    raise DeprecatedError(msg)
                 if is_deprecated:
                     warn_deprecated(argname, msg)
-                else:
-                    raise DeprecatedError(msg)
 
             return func(*args, **kwargs)
 
