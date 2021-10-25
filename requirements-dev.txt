@@ -39,3 +39,5 @@ jupyterlab==3.0.16
 openpyxl==3.0.7
 xlrd==2.0.1
 einops
+nvitop==0.5.1 
+pytorch_lightning==1.4.9
