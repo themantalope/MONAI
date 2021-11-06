@@ -41,3 +41,4 @@ xlrd==2.0.1
 einops
 nvitop==0.5.1 
 pytorch_lightning==1.4.9
+ipywidgets==7.6.5
