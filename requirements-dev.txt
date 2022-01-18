@@ -44,3 +44,4 @@ pytorch_lightning==1.4.9
 ipywidgets==7.6.5
 simpleitk==2.1.1
 ray[tune]==1.0.1
+torchio==0.18.71
