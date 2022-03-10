@@ -45,3 +45,5 @@ ipywidgets==7.6.5
 simpleitk==2.1.1
 ray[tune]==1.0.1
 torchio==0.18.71
+metaflow==2.5.3
+git+https://github.com/facebookresearch/pytorch3d.git@stable
