@@ -18,6 +18,9 @@ LABEL maintainer="matthew.antalek@gmail.com"
 
 WORKDIR /opt/monai
 
+ENV FORCE_CUDA=1
+ENV USERNAME="monai-dev"
+
 # install full deps
 COPY requirements.txt requirements-min.txt requirements-dev.txt /tmp/
 RUN cp /tmp/requirements.txt /tmp/req.bak \
