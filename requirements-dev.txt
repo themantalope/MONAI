@@ -48,4 +48,7 @@ ray[tune]==1.0.1
 torchio==0.18.71
 metaflow==2.5.3
 seaborn==0.11.2
+fuzzywuzzy==0.18.0
+python-levenshtein==0.12.2
 git+https://github.com/facebookresearch/pytorch3d.git@stable
+git+https://github.com/themantalope/filematcher.git
