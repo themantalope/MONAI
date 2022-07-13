@@ -43,7 +43,7 @@ RUN BUILD_MONAI=1 FORCE_CUDA=1 python setup.py develop \
 WORKDIR /opt/tools
 ARG NGC_CLI_URI="https://ngc.nvidia.com/downloads/ngccli_cat_linux.zip"
 RUN wget -q ${NGC_CLI_URI} && \
-    unzip ngccli_cat_linux.zip && chmod u+x ngc-cli && \
+    unzip ngccli_cat_linux.zip && chmod u+x ngc-cli/ngc && \
     md5sum -c ngc-cli.md5 && \
     rm -rf ngccli_cat_linux.zip ngc-cli.md5
 RUN apt-get update \
