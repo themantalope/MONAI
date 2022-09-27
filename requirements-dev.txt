@@ -39,3 +39,4 @@ jupyterlab==3.0.16
 openpyxl==3.0.7
 xlrd==2.0.1
 einops
+fire==0.4.0
