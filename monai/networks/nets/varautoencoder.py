@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -19,7 +19,6 @@ from torch.nn import functional as F
 from monai.networks.layers.convutils import calculate_out_shape, same_padding
 from monai.networks.layers.factories import Act, Norm
 from monai.networks.nets import AutoEncoder
-from monai.utils import deprecated_arg
 
 __all__ = ["VarAutoEncoder"]
 
@@ -28,10 +27,34 @@ class VarAutoEncoder(AutoEncoder):
     """
     Variational Autoencoder based on the paper - https://arxiv.org/abs/1312.6114
 
-    .. code-block:: python
+    Args:
+        spatial_dims: number of spatial dimensions.
+        in_shape: shape of input data starting with channel dimension.
+        out_channels: number of output channels.
+        latent_size: size of the latent variable.
+        channels: sequence of channels. Top block first. The length of `channels` should be no less than 2.
+        strides: sequence of convolution strides. The length of `stride` should equal to `len(channels) - 1`.
+        kernel_size: convolution kernel size, the value(s) should be odd. If sequence,
+            its length should equal to dimensions. Defaults to 3.
+        up_kernel_size: upsampling convolution kernel size, the value(s) should be odd. If sequence,
+            its length should equal to dimensions. Defaults to 3.
+        num_res_units: number of residual units. Defaults to 0.
+        inter_channels: sequence of channels defining the blocks in the intermediate layer between encode and decode.
+        inter_dilations: defines the dilation value for each block of the intermediate layer. Defaults to 1.
+        num_inter_units: number of residual units for each block of the intermediate layer. Defaults to 0.
+        act: activation type and arguments. Defaults to PReLU.
+        norm: feature normalization type and arguments. Defaults to instance norm.
+        dropout: dropout ratio. Defaults to no dropout.
+        bias: whether to have a bias term in convolution blocks. Defaults to True.
+            According to `Performance Tuning Guide <https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html>`_,
+            if a conv layer is directly followed by a batch norm layer, bias should be False.
+        use_sigmoid: whether to use the sigmoid function on final output. Defaults to True.
+
+    Examples::
 
         from monai.networks.nets import VarAutoEncoder
 
+        # 3 layer network accepting images with dimensions (1, 32, 32) and using a latent vector with 2 values
         model = VarAutoEncoder(
             dimensions=2,
             in_shape=(32, 32),  # image spatial shape
@@ -44,14 +67,8 @@ class VarAutoEncoder(AutoEncoder):
     see also:
         - Variational autoencoder network with MedNIST Dataset
           https://github.com/Project-MONAI/tutorials/blob/master/modules/varautoencoder_mednist.ipynb
-
-    .. deprecated:: 0.6.0
-        ``dimensions`` is deprecated, use ``spatial_dims`` instead.
     """
 
-    @deprecated_arg(
-        name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
-    )
     def __init__(
         self,
         spatial_dims: int,
@@ -70,15 +87,14 @@ class VarAutoEncoder(AutoEncoder):
         norm: Union[Tuple, str] = Norm.INSTANCE,
         dropout: Optional[Union[Tuple, str, float]] = None,
         bias: bool = True,
-        dimensions: Optional[int] = None,
+        use_sigmoid: bool = True,
     ) -> None:
 
         self.in_channels, *self.in_shape = in_shape
+        self.use_sigmoid = use_sigmoid
 
         self.latent_size = latent_size
         self.final_size = np.asarray(self.in_shape, dtype=int)
-        if dimensions is not None:
-            spatial_dims = dimensions
 
         super().__init__(
             spatial_dims,
@@ -135,4 +151,4 @@ class VarAutoEncoder(AutoEncoder):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         mu, logvar = self.encode_forward(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode_forward(z), mu, logvar, z
+        return self.decode_forward(z, self.use_sigmoid), mu, logvar, z

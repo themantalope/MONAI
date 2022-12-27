@@ -41,6 +41,12 @@ Mean Dice metrics handler
     :members:
 
 
+Mean IoU metric handler
+-----------------------
+.. autoclass:: MeanIoUHandler
+    :members:
+
+
 ROC AUC metrics handler
 -----------------------
 .. autoclass:: ROCAUC
@@ -95,9 +101,9 @@ Metric logger
     :members:
 
 
-Segmentation saver
-------------------
-.. autoclass:: SegmentationSaver
+Logfile handler
+---------------
+.. autoclass:: LogfileHandler
     :members:
 
 
@@ -150,11 +156,6 @@ GarbageCollector handler
 .. autoclass:: GarbageCollector
     :members:
 
-Transform inverter
-------------------
-.. autoclass:: TransformInverter
-    :members:
-
 Post processing
 ---------------
 .. autoclass:: PostProcessing
@@ -165,6 +166,11 @@ Decollate batch
 .. autoclass:: DecollateBatch
     :members:
 
+MLFlow handler
+--------------
+.. autoclass:: MLFlowHandler
+    :members:
+
 NVTX Handlers
 -------------
 .. automodule:: monai.handlers.nvtx_handlers
@@ -173,4 +179,9 @@ NVTX Handlers
 Utilities
 ---------
 .. automodule:: monai.handlers.utils
+  :members:
+
+Probability Map Handlers
+------------------------
+.. automodule:: monai.handlers.probability_maps
   :members:

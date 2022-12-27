@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -70,7 +70,7 @@ class HighResBlock(nn.Module):
             ValueError: When ``channel_matching=pad`` and ``in_channels > out_channels``. Incompatible values.
 
         """
-        super(HighResBlock, self).__init__()
+        super().__init__()
         self.chn_pad = ChannelPad(
             spatial_dims=spatial_dims, in_channels=in_channels, out_channels=out_channels, mode=channel_matching
         )
@@ -146,7 +146,7 @@ class HighResNet(nn.Module):
         channel_matching: Union[ChannelMatching, str] = ChannelMatching.PAD,
     ) -> None:
 
-        super(HighResNet, self).__init__()
+        super().__init__()
         blocks = nn.ModuleList()
 
         # initial conv layer
@@ -168,7 +168,7 @@ class HighResNet(nn.Module):
         # residual blocks
         for (idx, params) in enumerate(layer_params[1:-2]):  # res blocks except the 1st and last two conv layers.
             _in_chns, _out_chns = _out_chns, params["n_features"]
-            _dilation = 2 ** idx
+            _dilation = 2**idx
             for _ in range(params["repeat"]):
                 blocks.append(
                     HighResBlock(

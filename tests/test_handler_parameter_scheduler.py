@@ -1,15 +1,26 @@
+# Copyright (c) MONAI Consortium
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unittest
 
-import torch
 from ignite.engine import Engine, Events
 from torch.nn import Module
 
 from monai.handlers.parameter_scheduler import ParamSchedulerHandler
+from tests.utils import assert_allclose
 
 
 class ToyNet(Module):
     def __init__(self, value):
-        super(ToyNet, self).__init__()
+        super().__init__()
         self.value = value
 
     def forward(self, input):
@@ -35,7 +46,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=2)
-        torch.testing.assert_allclose(net.get_value(), 0)
+        assert_allclose(net.get_value(), 0)
 
         # Testing linear increase
         net = ToyNet(value=-1)
@@ -48,7 +59,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=3)
-        torch.testing.assert_allclose(net.get_value(), 3.333333, atol=0.001, rtol=0.0)
+        assert_allclose(net.get_value(), 3.333333, atol=0.001, rtol=0.0)
 
         # Testing max_value
         net = ToyNet(value=-1)
@@ -61,7 +72,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=10)
-        torch.testing.assert_allclose(net.get_value(), 10)
+        assert_allclose(net.get_value(), 10)
 
     def test_exponential_scheduler(self):
         net = ToyNet(value=-1)
@@ -74,7 +85,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=2)
-        torch.testing.assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
+        assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
 
     def test_step_scheduler(self):
         net = ToyNet(value=-1)
@@ -87,7 +98,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=10)
-        torch.testing.assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
+        assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
 
     def test_multistep_scheduler(self):
         net = ToyNet(value=-1)
@@ -100,7 +111,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=10)
-        torch.testing.assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
+        assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
 
     def test_custom_scheduler(self):
         def custom_logic(initial_value, gamma, current_step):
@@ -116,7 +127,7 @@ class TestHandlerParameterScheduler(unittest.TestCase):
             event=Events.EPOCH_COMPLETED,
         ).attach(engine)
         engine.run([0] * 8, max_epochs=2)
-        torch.testing.assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
+        assert_allclose(net.get_value(), 10 * 0.99 * 0.99)
 
 
 if __name__ == "__main__":

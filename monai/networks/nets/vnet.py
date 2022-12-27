@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -30,7 +30,7 @@ def get_acti_layer(act: Union[Tuple[str, Dict], str], nchan: int = 0):
 
 class LUConv(nn.Module):
     def __init__(self, spatial_dims: int, nchan: int, act: Union[Tuple[str, Dict], str], bias: bool = False):
-        super(LUConv, self).__init__()
+        super().__init__()
 
         self.act_function = get_acti_layer(act, nchan)
         self.conv_block = Convolution(
@@ -65,18 +65,21 @@ class InputTransition(nn.Module):
         act: Union[Tuple[str, Dict], str],
         bias: bool = False,
     ):
-        super(InputTransition, self).__init__()
+        super().__init__()
 
-        if 16 % in_channels != 0:
-            raise ValueError(f"16 should be divisible by in_channels, got in_channels={in_channels}.")
+        if out_channels % in_channels != 0:
+            raise ValueError(
+                f"out channels should be divisible by in_channels. Got in_channels={in_channels}, out_channels={out_channels}."
+            )
 
         self.spatial_dims = spatial_dims
         self.in_channels = in_channels
-        self.act_function = get_acti_layer(act, 16)
+        self.out_channels = out_channels
+        self.act_function = get_acti_layer(act, out_channels)
         self.conv_block = Convolution(
             spatial_dims=spatial_dims,
             in_channels=in_channels,
-            out_channels=16,
+            out_channels=out_channels,
             kernel_size=5,
             act=None,
             norm=Norm.BATCH,
@@ -85,7 +88,7 @@ class InputTransition(nn.Module):
 
     def forward(self, x):
         out = self.conv_block(x)
-        repeat_num = 16 // self.in_channels
+        repeat_num = self.out_channels // self.in_channels
         x16 = x.repeat([1, repeat_num, 1, 1, 1][: self.spatial_dims + 2])
         out = self.act_function(torch.add(out, x16))
         return out
@@ -102,7 +105,7 @@ class DownTransition(nn.Module):
         dropout_dim: int = 3,
         bias: bool = False,
     ):
-        super(DownTransition, self).__init__()
+        super().__init__()
 
         conv_type: Type[Union[nn.Conv2d, nn.Conv3d]] = Conv[Conv.CONV, spatial_dims]
         norm_type: Type[Union[nn.BatchNorm2d, nn.BatchNorm3d]] = Norm[Norm.BATCH, spatial_dims]
@@ -138,7 +141,7 @@ class UpTransition(nn.Module):
         dropout_prob: Optional[float] = None,
         dropout_dim: int = 3,
     ):
-        super(UpTransition, self).__init__()
+        super().__init__()
 
         conv_trans_type: Type[Union[nn.ConvTranspose2d, nn.ConvTranspose3d]] = Conv[Conv.CONVTRANS, spatial_dims]
         norm_type: Type[Union[nn.BatchNorm2d, nn.BatchNorm3d]] = Norm[Norm.BATCH, spatial_dims]
@@ -174,7 +177,7 @@ class OutputTransition(nn.Module):
         act: Union[Tuple[str, Dict], str],
         bias: bool = False,
     ):
-        super(OutputTransition, self).__init__()
+        super().__init__()
 
         conv_type: Type[Union[nn.Conv2d, nn.Conv3d]] = Conv[Conv.CONV, spatial_dims]
 
@@ -213,7 +216,7 @@ class VNet(nn.Module):
             The value should meet the condition that ``16 % in_channels == 0``.
         out_channels: number of output channels for the network. Defaults to 1.
         act: activation type in the network. Defaults to ``("elu", {"inplace": True})``.
-        dropout_prob: dropout ratio. Defaults to 0.5. Defaults to 3.
+        dropout_prob: dropout ratio. Defaults to 0.5.
         dropout_dim: determine the dimensions of dropout. Defaults to 3.
 
             - ``dropout_dim = 1``, randomly zeroes some of the elements for each channel.

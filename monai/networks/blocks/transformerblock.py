@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -22,11 +22,7 @@ class TransformerBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        hidden_size: int,
-        mlp_dim: int,
-        num_heads: int,
-        dropout_rate: float = 0.0,
+        self, hidden_size: int, mlp_dim: int, num_heads: int, dropout_rate: float = 0.0, qkv_bias: bool = False
     ) -> None:
         """
         Args:
@@ -34,6 +30,7 @@ class TransformerBlock(nn.Module):
             mlp_dim: dimension of feedforward layer.
             num_heads: number of attention heads.
             dropout_rate: faction of the input units to drop.
+            qkv_bias: apply bias term for the qkv linear layer
 
         """
 
@@ -47,7 +44,7 @@ class TransformerBlock(nn.Module):
 
         self.mlp = MLPBlock(hidden_size, mlp_dim, dropout_rate)
         self.norm1 = nn.LayerNorm(hidden_size)
-        self.attn = SABlock(hidden_size, num_heads, dropout_rate)
+        self.attn = SABlock(hidden_size, num_heads, dropout_rate, qkv_bias)
         self.norm2 = nn.LayerNorm(hidden_size)
 
     def forward(self, x):

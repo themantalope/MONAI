@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 import numpy as np
 
 from monai.config import DtypeLike, IgniteInfo
-from monai.utils import min_version, optional_import
+from monai.utils import deprecated, min_version, optional_import
 
 Events, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Events")
 if TYPE_CHECKING:
@@ -25,6 +25,13 @@ else:
     Engine, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Engine")
 
 
+@deprecated(
+    since="0.8",
+    msg_suffix=(
+        "use `monai.handler.ProbMapProducer` (with `monai.data.wsi_dataset.MaskedPatchWSIDataset` or "
+        "`monai.data.wsi_dataset.SlidingPatchWSIDataset`) instead."
+    ),
+)
 class ProbMapProducer:
     """
     Event handler triggered on completing every iteration to save the probability map
@@ -62,9 +69,10 @@ class ProbMapProducer:
             engine: Ignite Engine, it can be a trainer, validator or evaluator.
         """
 
-        self.num_images = len(engine.data_loader.dataset.data)
+        data_loader = engine.data_loader  # type: ignore
+        self.num_images = len(data_loader.dataset.data)
 
-        for sample in engine.data_loader.dataset.data:
+        for sample in data_loader.dataset.data:
             name = sample["name"]
             self.prob_map[name] = np.zeros(sample["mask_shape"], dtype=self.dtype)
             self.counter[name] = len(sample["mask_locations"])
@@ -84,6 +92,8 @@ class ProbMapProducer:
         Args:
             engine: Ignite Engine, it can be a trainer, validator or evaluator.
         """
+        if not isinstance(engine.state.batch, dict) or not isinstance(engine.state.output, dict):
+            raise ValueError("engine.state.batch and engine.state.output must be dictionaries.")
         names = engine.state.batch["name"]
         locs = engine.state.batch["mask_location"]
         pred = engine.state.output["pred"]

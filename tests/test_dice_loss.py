@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,15 +16,12 @@ import torch
 from parameterized import parameterized
 
 from monai.losses import DiceLoss
-from tests.utils import SkipIfBeforePyTorchVersion, test_script_save
+from tests.utils import test_script_save
 
 TEST_CASES = [
     [  # shape: (1, 1, 2, 2), (1, 1, 2, 2)
         {"include_background": True, "sigmoid": True, "smooth_nr": 1e-6, "smooth_dr": 1e-6},
-        {
-            "input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]),
-            "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]]),
-        },
+        {"input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]), "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]])},
         0.307576,
     ],
     [  # shape: (2, 1, 2, 2), (2, 1, 2, 2)
@@ -64,7 +61,7 @@ TEST_CASES = [
             "input": torch.tensor([[[-1.0, 0.0, 1.0], [1.0, 0.0, -1.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]]),
             "target": torch.tensor([[[1.0, 0.0, 0.0]], [[1.0, 1.0, 0.0]]]),
         },
-        [[0.296529, 0.415136], [0.599976, 0.428559]],
+        [[[0.296529], [0.415136]], [[0.599976], [0.428559]]],
     ],
     [  # shape: (2, 2, 3), (2, 1, 3)
         {"include_background": True, "to_onehot_y": True, "softmax": True, "smooth_nr": 1e-4, "smooth_dr": 1e-4},
@@ -91,26 +88,17 @@ TEST_CASES = [
     ],
     [  # shape: (1, 1, 2, 2), (1, 1, 2, 2)
         {"include_background": True, "sigmoid": True, "smooth_nr": 1e-6, "smooth_dr": 1e-6},
-        {
-            "input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]),
-            "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]]),
-        },
+        {"input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]), "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]])},
         0.307576,
     ],
     [  # shape: (1, 1, 2, 2), (1, 1, 2, 2)
         {"include_background": True, "sigmoid": True, "squared_pred": True},
-        {
-            "input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]),
-            "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]]),
-        },
+        {"input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]), "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]])},
         0.178337,
     ],
     [  # shape: (1, 1, 2, 2), (1, 1, 2, 2)
         {"include_background": True, "sigmoid": True, "jaccard": True},
-        {
-            "input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]),
-            "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]]),
-        },
+        {"input": torch.tensor([[[[1.0, -1.0], [-1.0, 1.0]]]]), "target": torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]])},
         0.470451,
     ],
     [  # shape: (2, 1, 2, 2), (2, 1, 2, 2)
@@ -196,7 +184,6 @@ class TestDiceLoss(unittest.TestCase):
             loss = DiceLoss(to_onehot_y=True)
             loss.forward(chn_input, chn_target)
 
-    @SkipIfBeforePyTorchVersion((1, 7, 0))
     def test_script(self):
         loss = DiceLoss()
         test_input = torch.ones(2, 1, 8, 8)

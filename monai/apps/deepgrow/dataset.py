@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,7 +15,7 @@ from typing import Dict, List
 
 import numpy as np
 
-from monai.transforms import AsChannelFirstd, Compose, LoadImaged, Orientationd, Spacingd
+from monai.transforms import Compose, EnsureChannelFirstd, LoadImaged, Orientationd, Spacingd, SqueezeDimd
 from monai.utils import GridSampleMode
 
 
@@ -84,12 +84,12 @@ def create_dataset(
 
     transforms = _default_transforms(image_key, label_key, pixdim) if transforms is None else transforms
     new_datalist = []
-    for idx in range(len(datalist)):
+    for idx, item in enumerate(datalist):
         if limit and idx >= limit:
             break
 
-        image = datalist[idx][image_key]
-        label = datalist[idx].get(label_key, None)
+        image = item[image_key]
+        label = item.get(label_key, None)
         if base_dir:
             image = os.path.join(base_dir, image)
             label = os.path.join(base_dir, label) if label else None
@@ -97,21 +97,31 @@ def create_dataset(
         image = os.path.abspath(image)
         label = os.path.abspath(label) if label else None
 
-        logging.info("Image: {}; Label: {}".format(image, label if label else None))
+        logging.info(f"Image: {image}; Label: {label if label else None}")
         data = transforms({image_key: image, label_key: label})
+
+        vol_image = data[image_key]
+        vol_label = data.get(label_key)
+        logging.info(f"Image (transform): {vol_image.shape}; Label: {None if vol_label is None else vol_label.shape}")
+
+        vol_image = np.moveaxis(vol_image, -1, 0)
+        if vol_label is not None:
+            vol_label = np.moveaxis(vol_label, -1, 0)
+        logging.info(f"Image (final): {vol_image.shape}; Label: {None if vol_label is None else vol_label.shape}")
+
         if dimension == 2:
             data = _save_data_2d(
                 vol_idx=idx,
-                vol_image=data[image_key],
-                vol_label=data[label_key],
+                vol_image=vol_image,
+                vol_label=vol_label,
                 dataset_dir=output_dir,
                 relative_path=relative_path,
             )
         else:
             data = _save_data_3d(
                 vol_idx=idx,
-                vol_image=data[image_key],
-                vol_label=data[label_key],
+                vol_image=vol_image,
+                vol_label=vol_label,
                 dataset_dir=output_dir,
                 relative_path=relative_path,
             )
@@ -125,24 +135,16 @@ def _default_transforms(image_key, label_key, pixdim):
     return Compose(
         [
             LoadImaged(keys=keys),
-            AsChannelFirstd(keys=keys),
-            Spacingd(keys=keys, pixdim=pixdim, mode=mode),
+            EnsureChannelFirstd(keys=keys),
             Orientationd(keys=keys, axcodes="RAS"),
+            Spacingd(keys=keys, pixdim=pixdim, mode=mode),
+            SqueezeDimd(keys=keys),
         ]
     )
 
 
 def _save_data_2d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
     data_list = []
-
-    if len(vol_image.shape) == 4:
-        logging.info(
-            "4D-Image, pick only first series; Image: {}; Label: {}".format(
-                vol_image.shape, vol_label.shape if vol_label is not None else None
-            )
-        )
-        vol_image = vol_image[0]
-        vol_image = np.moveaxis(vol_image, -1, 0)
 
     image_count = 0
     label_count = 0
@@ -154,7 +156,7 @@ def _save_data_2d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
         if vol_label is not None and np.sum(label) == 0:
             continue
 
-        image_file_prefix = "vol_idx_{:0>4d}_slice_{:0>3d}".format(vol_idx, sid)
+        image_file_prefix = f"vol_idx_{vol_idx:0>4d}_slice_{sid:0>3d}"
         image_file = os.path.join(dataset_dir, "images", image_file_prefix)
         image_file += ".npy"
 
@@ -165,9 +167,7 @@ def _save_data_2d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
         # Test Data
         if vol_label is None:
             data_list.append(
-                {
-                    "image": image_file.replace(dataset_dir + os.pathsep, "") if relative_path else image_file,
-                }
+                {"image": image_file.replace(dataset_dir + os.pathsep, "") if relative_path else image_file}
             )
             continue
 
@@ -177,7 +177,7 @@ def _save_data_2d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
         unique_labels_count = max(unique_labels_count, len(unique_labels))
 
         for idx in unique_labels:
-            label_file_prefix = "{}_region_{:0>2d}".format(image_file_prefix, int(idx))
+            label_file_prefix = f"{image_file_prefix}_region_{int(idx):0>2d}"
             label_file = os.path.join(dataset_dir, "labels", label_file_prefix)
             label_file += ".npy"
 
@@ -213,20 +213,11 @@ def _save_data_2d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
 def _save_data_3d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
     data_list = []
 
-    if len(vol_image.shape) == 4:
-        logging.info(
-            "4D-Image, pick only first series; Image: {}; Label: {}".format(
-                vol_image.shape, vol_label.shape if vol_label is not None else None
-            )
-        )
-        vol_image = vol_image[0]
-        vol_image = np.moveaxis(vol_image, -1, 0)
-
     image_count = 0
     label_count = 0
     unique_labels_count = 0
 
-    image_file_prefix = "vol_idx_{:0>4d}".format(vol_idx)
+    image_file_prefix = f"vol_idx_{vol_idx:0>4d}"
     image_file = os.path.join(dataset_dir, "images", image_file_prefix)
     image_file += ".npy"
 
@@ -236,11 +227,7 @@ def _save_data_3d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
 
     # Test Data
     if vol_label is None:
-        data_list.append(
-            {
-                "image": image_file.replace(dataset_dir + os.pathsep, "") if relative_path else image_file,
-            }
-        )
+        data_list.append({"image": image_file.replace(dataset_dir + os.pathsep, "") if relative_path else image_file})
     else:
         # For all Labels
         unique_labels = np.unique(vol_label.flatten())
@@ -248,7 +235,7 @@ def _save_data_3d(vol_idx, vol_image, vol_label, dataset_dir, relative_path):
         unique_labels_count = max(unique_labels_count, len(unique_labels))
 
         for idx in unique_labels:
-            label_file_prefix = "{}_region_{:0>2d}".format(image_file_prefix, int(idx))
+            label_file_prefix = f"{image_file_prefix}_region_{int(idx):0>2d}"
             label_file = os.path.join(dataset_dir, "labels", label_file_prefix)
             label_file += ".npy"
 

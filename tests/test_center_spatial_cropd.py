@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,36 +15,42 @@ import numpy as np
 from parameterized import parameterized
 
 from monai.transforms import CenterSpatialCropd
+from tests.croppers import CropTest
 
-TEST_CASE_0 = [
-    {"keys": "img", "roi_size": [2, -1, -1]},
-    {"img": np.random.randint(0, 2, size=[3, 3, 3, 3])},
-    (3, 2, 3, 3),
+TEST_SHAPES = [
+    [
+        {"keys": "img", "roi_size": [2, -1, -1]},
+        (3, 3, 3, 3),
+        (3, 2, 3, 3),
+        (slice(None), slice(None, -1), slice(None), slice(None)),
+    ],
+    [
+        {"keys": "img", "roi_size": [2, 2, 2]},
+        (3, 3, 3, 3),
+        (3, 2, 2, 2),
+        (slice(None), slice(None, -1), slice(None, -1), slice(None, -1)),
+    ],
 ]
 
-TEST_CASE_1 = [
-    {"keys": "img", "roi_size": [2, 2, 2]},
-    {"img": np.random.randint(0, 2, size=[3, 3, 3, 3])},
-    (3, 2, 2, 2),
-]
-
-TEST_CASE_2 = [
-    {"keys": "img", "roi_size": [2, 2]},
-    {"img": np.array([[[0, 0, 0, 0, 0], [0, 1, 2, 1, 0], [0, 2, 3, 2, 0], [0, 1, 2, 1, 0], [0, 0, 0, 0, 0]]])},
-    np.array([[[1, 2], [2, 3]]]),
+TEST_CASES = [
+    [
+        {"keys": "img", "roi_size": [2, 2]},
+        np.array([[[0, 0, 0, 0, 0], [0, 1, 2, 1, 0], [0, 2, 3, 2, 0], [0, 1, 2, 1, 0], [0, 0, 0, 0, 0]]]),
+        np.array([[[1, 2], [2, 3]]]),
+    ]
 ]
 
 
-class TestCenterSpatialCropd(unittest.TestCase):
-    @parameterized.expand([TEST_CASE_0, TEST_CASE_1])
-    def test_shape(self, input_param, input_data, expected_shape):
-        result = CenterSpatialCropd(**input_param)(input_data)
-        self.assertTupleEqual(result["img"].shape, expected_shape)
+class TestCenterSpatialCropd(CropTest):
+    Cropper = CenterSpatialCropd
 
-    @parameterized.expand([TEST_CASE_2])
+    @parameterized.expand(TEST_SHAPES)
+    def test_shape(self, input_param, input_shape, expected_shape, same_area):
+        self.crop_test(input_param, input_shape, expected_shape, same_area)
+
+    @parameterized.expand(TEST_CASES)
     def test_value(self, input_param, input_data, expected_value):
-        result = CenterSpatialCropd(**input_param)(input_data)
-        np.testing.assert_allclose(result["img"], expected_value)
+        self.crop_test_value(input_param, input_data, expected_value)
 
 
 if __name__ == "__main__":

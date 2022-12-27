@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -17,12 +17,32 @@ import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 
+from monai.apps.utils import download_url
 from monai.networks.blocks.convolutions import Convolution
 from monai.networks.blocks.squeeze_and_excitation import SEBottleneck, SEResNetBottleneck, SEResNeXtBottleneck
 from monai.networks.layers.factories import Act, Conv, Dropout, Norm, Pool
 from monai.utils.module import look_up_option
 
-__all__ = ["SENet", "SENet154", "SEResNet50", "SEResNet101", "SEResNet152", "SEResNeXt50", "SEResNext101"]
+__all__ = [
+    "SENet",
+    "SENet154",
+    "SEResNet50",
+    "SEResNet101",
+    "SEResNet152",
+    "SEResNeXt50",
+    "SEResNext101",
+    "SE_NET_MODELS",
+]
+
+
+SE_NET_MODELS = {
+    "senet154": "http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth",
+    "se_resnet50": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth",
+    "se_resnet101": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth",
+    "se_resnet152": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth",
+    "se_resnext50_32x4d": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth",
+    "se_resnext101_32x4d": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth",
+}
 
 
 class SENet(nn.Module):
@@ -34,10 +54,10 @@ class SENet(nn.Module):
     Args:
         spatial_dims: spatial dimension of the input data.
         in_channels: channel number of the input data.
-        block: SEBlock class.
-            for SENet154: SEBottleneck
-            for SE-ResNet models: SEResNetBottleneck
-            for SE-ResNeXt models:  SEResNeXtBottleneck
+        block: SEBlock class or str.
+            for SENet154: SEBottleneck or 'se_bottleneck'
+            for SE-ResNet models: SEResNetBottleneck or 'se_resnet_bottleneck'
+            for SE-ResNeXt models:  SEResNeXtBottleneck or 'se_resnetxt_bottleneck'
         layers: number of residual blocks for 4 layers of the network (layer1...layer4).
         groups: number of groups for the 3x3 convolution in each bottleneck block.
             for SENet154: 64
@@ -75,7 +95,7 @@ class SENet(nn.Module):
         self,
         spatial_dims: int,
         in_channels: int,
-        block: Type[Union[SEBottleneck, SEResNetBottleneck, SEResNeXtBottleneck]],
+        block: Union[Type[Union[SEBottleneck, SEResNetBottleneck, SEResNeXtBottleneck]], str],
         layers: Sequence[int],
         groups: int,
         reduction: int,
@@ -87,7 +107,19 @@ class SENet(nn.Module):
         num_classes: int = 1000,
     ) -> None:
 
-        super(SENet, self).__init__()
+        super().__init__()
+
+        if isinstance(block, str):
+            if block == "se_bottleneck":
+                block = SEBottleneck
+            elif block == "se_resnet_bottleneck":
+                block = SEResNetBottleneck
+            elif block == "se_resnetxt_bottleneck":
+                block = SEResNeXtBottleneck
+            else:
+                raise ValueError(
+                    "Unknown block '%s', use se_bottleneck, se_resnet_bottleneck or se_resnetxt_bottleneck" % block
+                )
 
         relu_type: Type[nn.ReLU] = Act[Act.RELU]
         conv_type: Type[Union[nn.Conv1d, nn.Conv2d, nn.Conv3d]] = Conv[Conv.CONV, spatial_dims]
@@ -254,15 +286,7 @@ def _load_state_dict(model: nn.Module, arch: str, progress: bool):
     """
     This function is used to load pretrained models.
     """
-    model_urls = {
-        "senet154": "http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth",
-        "se_resnet50": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth",
-        "se_resnet101": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth",
-        "se_resnet152": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth",
-        "se_resnext50_32x4d": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth",
-        "se_resnext101_32x4d": "http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth",
-    }
-    model_url = look_up_option(arch, model_urls, None)
+    model_url = look_up_option(arch, SE_NET_MODELS, None)
     if model_url is None:
         raise ValueError(
             "only 'senet154', 'se_resnet50', 'se_resnet101',  'se_resnet152', 'se_resnext50_32x4d', "
@@ -276,7 +300,11 @@ def _load_state_dict(model: nn.Module, arch: str, progress: bool):
     pattern_down_conv = re.compile(r"^(layer[1-4]\.\d\.)(?:downsample.0.)(\w*)$")
     pattern_down_bn = re.compile(r"^(layer[1-4]\.\d\.)(?:downsample.1.)(\w*)$")
 
-    state_dict = load_state_dict_from_url(model_url, progress=progress)
+    if isinstance(model_url, dict):
+        download_url(model_url["url"], filepath=model_url["filename"])
+        state_dict = torch.load(model_url["filename"], map_location=None)
+    else:
+        state_dict = load_state_dict_from_url(model_url, progress=progress)
     for key in list(state_dict.keys()):
         new_key = None
         if pattern_conv.match(key):
@@ -317,13 +345,7 @@ class SENet154(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SENet154, self).__init__(
-            block=SEBottleneck,
-            layers=layers,
-            groups=groups,
-            reduction=reduction,
-            **kwargs,
-        )
+        super().__init__(block=SEBottleneck, layers=layers, groups=groups, reduction=reduction, **kwargs)
         if pretrained:
             # it only worked when `spatial_dims` is 2
             _load_state_dict(self, "senet154", progress)
@@ -345,7 +367,7 @@ class SEResNet50(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SEResNet50, self).__init__(
+        super().__init__(
             block=SEResNetBottleneck,
             layers=layers,
             groups=groups,
@@ -378,7 +400,7 @@ class SEResNet101(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SEResNet101, self).__init__(
+        super().__init__(
             block=SEResNetBottleneck,
             layers=layers,
             groups=groups,
@@ -410,7 +432,7 @@ class SEResNet152(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SEResNet152, self).__init__(
+        super().__init__(
             block=SEResNetBottleneck,
             layers=layers,
             groups=groups,
@@ -443,7 +465,7 @@ class SEResNext50(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SEResNext50, self).__init__(
+        super().__init__(
             block=SEResNeXtBottleneck,
             layers=layers,
             groups=groups,
@@ -477,7 +499,7 @@ class SEResNext101(SENet):
         progress: bool = True,
         **kwargs,
     ) -> None:
-        super(SEResNext101, self).__init__(
+        super().__init__(
             block=SEResNeXtBottleneck,
             layers=layers,
             groups=groups,
@@ -493,7 +515,7 @@ class SEResNext101(SENet):
             _load_state_dict(self, "se_resnext101_32x4d", progress)
 
 
-SEnet = Senet = senet = SENet
+SEnet = Senet = SENet
 SEnet154 = Senet154 = senet154 = SENet154
 SEresnet50 = Seresnet50 = seresnet50 = SEResNet50
 SEresnet101 = Seresnet101 = seresnet101 = SEResNet101

@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,7 +16,7 @@ import torch
 from parameterized import parameterized
 
 from monai.losses import DiceCELoss
-from tests.utils import SkipIfBeforePyTorchVersion, test_script_save
+from tests.utils import test_script_save
 
 TEST_CASES = [
     [  # shape: (2, 2, 3), (2, 1, 3)
@@ -80,7 +80,11 @@ class TestDiceCELoss(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, ""):
             loss(torch.ones((1, 2, 3)), torch.ones((1, 1, 2, 3)))
 
-    @SkipIfBeforePyTorchVersion((1, 7, 0))
+    def test_ill_reduction(self):
+        with self.assertRaisesRegex(ValueError, ""):
+            loss = DiceCELoss(reduction="none")
+            loss(torch.ones((1, 2, 3)), torch.ones((1, 1, 2, 3)))
+
     def test_script(self):
         loss = DiceCELoss()
         test_input = torch.ones(2, 1, 8, 8)

@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,11 +15,12 @@ import numpy as np
 import torch
 from parameterized import parameterized
 
+from monai.data import MetaTensor, set_track_meta
 from monai.transforms import Rand3DElastic
-from tests.utils import TEST_NDARRAYS, assert_allclose
+from tests.utils import TEST_NDARRAYS_ALL, assert_allclose
 
 TESTS = []
-for p in TEST_NDARRAYS:
+for p in TEST_NDARRAYS_ALL:
     for device in [None, "cpu", "cuda"] if torch.cuda.is_available() else [None, "cpu"]:
         TESTS.append(
             [
@@ -36,24 +37,14 @@ for p in TEST_NDARRAYS:
         )
         TESTS.append(
             [
-                {
-                    "magnitude_range": (0.3, 2.3),
-                    "sigma_range": (1.0, 20.0),
-                    "prob": 0.0,
-                    "device": device,
-                },
+                {"magnitude_range": (0.3, 2.3), "sigma_range": (1.0, 20.0), "prob": 0.0, "device": device},
                 {"img": p(torch.ones((2, 3, 3, 3))), "spatial_size": (2, 2, 2)},
                 p(np.ones((2, 2, 2, 2))),
             ]
         )
         TESTS.append(
             [
-                {
-                    "magnitude_range": (0.3, 0.3),
-                    "sigma_range": (1.0, 2.0),
-                    "prob": 0.9,
-                    "device": device,
-                },
+                {"magnitude_range": (0.3, 0.3), "sigma_range": (1.0, 2.0), "prob": 0.9, "device": device},
                 {"img": p(torch.arange(27).reshape((1, 3, 3, 3))), "spatial_size": (2, 2, 2)},
                 p(
                     np.array(
@@ -96,9 +87,15 @@ class TestRand3DElastic(unittest.TestCase):
     @parameterized.expand(TESTS)
     def test_rand_3d_elastic(self, input_param, input_data, expected_val):
         g = Rand3DElastic(**input_param)
+        set_track_meta(False)
         g.set_random_state(123)
         result = g(**input_data)
-        assert_allclose(result, expected_val, rtol=1e-4, atol=1e-4)
+        self.assertNotIsInstance(result, MetaTensor)
+        self.assertIsInstance(result, torch.Tensor)
+        set_track_meta(True)
+        g.set_random_state(123)
+        result = g(**input_data)
+        assert_allclose(result, expected_val, type_test=False, rtol=1e-1, atol=1e-1)
 
 
 if __name__ == "__main__":
