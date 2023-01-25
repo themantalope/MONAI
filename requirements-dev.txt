@@ -67,5 +67,5 @@ pydicom
 h5py
 nni
 optuna
-git+https://github.com/facebookresearch/pytorch3d.git@stable
+# git+https://github.com/facebookresearch/pytorch3d.git@stable
 git+https://github.com/themantalope/filematcher.git
