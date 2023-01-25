@@ -15,7 +15,7 @@ import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from torch.utils.data._utils.collate import np_str_obj_array_pattern
@@ -33,6 +33,7 @@ from monai.utils import (
     SpaceKeys,
     TraceKeys,
     deprecated,
+    deprecated_arg,
     ensure_tuple,
     ensure_tuple_rep,
     optional_import,
@@ -276,7 +277,7 @@ class ITKReader(ImageReader):
                 img_.append(itk.imread(name, **kwargs_))
         return img_ if len(filenames) > 1 else img_[0]
 
-    def get_data(self, img):
+    def get_data(self, img) -> Tuple[np.ndarray, Dict]:
         """
         Extract data array and metadata from loaded image and return them.
         This function returns two objects, first is numpy array of image data, second is dict of metadata.
@@ -318,7 +319,12 @@ class ITKReader(ImageReader):
 
         """
         img_meta_dict = img.GetMetaDataDictionary()
-        meta_dict = {key: img_meta_dict[key] for key in img_meta_dict.GetKeys() if not key.startswith("ITK_")}
+        meta_dict = {}
+        for key in img_meta_dict.GetKeys():
+            if key.startswith("ITK_"):
+                continue
+            val = img_meta_dict[key]
+            meta_dict[key] = np.asarray(val) if type(val).__name__.startswith("itk") else val
 
         meta_dict["spacing"] = np.asarray(img.GetSpacing())
         return meta_dict
@@ -491,7 +497,7 @@ class PydicomReader(ImageReader):
                 img_.append(ds)
         return img_ if len(filenames) > 1 else img_[0]
 
-    def _combine_dicom_series(self, data):
+    def _combine_dicom_series(self, data: Iterable):
         """
         Combine dicom series (a list of pydicom dataset objects). Their data arrays will be stacked together at a new
         dimension as the last dimension.
@@ -509,14 +515,14 @@ class PydicomReader(ImageReader):
         Returns:
             a tuple that consisted with data array and metadata.
         """
-        slices = []
+        slices: List = []
         # for a dicom series
         for slc_ds in data:
             if hasattr(slc_ds, "InstanceNumber"):
                 slices.append(slc_ds)
             else:
                 warnings.warn(f"slice: {slc_ds.filename} does not have InstanceNumber tag, skip it.")
-        slices = sorted(slices, key=lambda s: s.InstanceNumber)
+        slices = sorted(slices, key=lambda s: s.InstanceNumber)  # type: ignore
 
         if len(slices) == 0:
             raise ValueError("the input does not have valid slices.")
@@ -525,7 +531,7 @@ class PydicomReader(ImageReader):
         average_distance = 0.0
         first_array = self._get_array_data(first_slice)
         shape = first_array.shape
-        spacing = getattr(first_slice, "PixelSpacing", (1.0, 1.0, 1.0))
+        spacing = getattr(first_slice, "PixelSpacing", [1.0, 1.0, 1.0])
         pos = getattr(first_slice, "ImagePositionPatient", (0.0, 0.0, 0.0))[2]
         stack_array = [first_array]
         for idx in range(1, len(slices)):
@@ -558,7 +564,7 @@ class PydicomReader(ImageReader):
 
         return stack_array, stack_metadata
 
-    def get_data(self, data):
+    def get_data(self, data) -> Tuple[np.ndarray, Dict]:
         """
         Extract data array and metadata from loaded image and return them.
         This function returns two objects, first is numpy array of image data, second is dict of metadata.
@@ -641,7 +647,7 @@ class PydicomReader(ImageReader):
 
         """
 
-        metadata = img.to_json_dict()
+        metadata = img.to_json_dict(suppress_invalid_tags=True)
 
         if self.prune_metadata:
             prune_metadata = {}
@@ -866,12 +872,12 @@ class NibabelReader(ImageReader):
             this is used to set original_channel_dim in the metadata, EnsureChannelFirstD reads this field.
             if None, `original_channel_dim` will be either `no_channel` or `-1`.
             most Nifti files are usually "channel last", no need to specify this argument for them.
-        dtype: dtype of the output data array when loading with Nibabel library.
         kwargs: additional args for `nibabel.load` API. more details about available args:
             https://github.com/nipy/nibabel/blob/master/nibabel/loadsave.py
 
     """
 
+    @deprecated_arg("dtype", since="1.0", msg_suffix="please modify dtype of the returned by ``get_data`` instead.")
     def __init__(
         self,
         channel_dim: Optional[int] = None,
@@ -884,7 +890,7 @@ class NibabelReader(ImageReader):
         self.channel_dim = channel_dim
         self.as_closest_canonical = as_closest_canonical
         self.squeeze_non_spatial_dims = squeeze_non_spatial_dims
-        self.dtype = dtype
+        self.dtype = dtype  # deprecated
         self.kwargs = kwargs
 
     def verify_suffix(self, filename: Union[Sequence[PathLike], PathLike]) -> bool:
@@ -923,7 +929,7 @@ class NibabelReader(ImageReader):
             img_.append(img)
         return img_ if len(filenames) > 1 else img_[0]
 
-    def get_data(self, img):
+    def get_data(self, img) -> Tuple[np.ndarray, Dict]:
         """
         Extract data array and metadata from loaded image and return them.
         This function returns two objects, first is numpy array of image data, second is dict of metadata.
@@ -1022,9 +1028,7 @@ class NibabelReader(ImageReader):
             img: a Nibabel image object loaded from an image file.
 
         """
-        _array = np.array(img.get_fdata(dtype=self.dtype))
-        img.uncache()
-        return _array
+        return np.asanyarray(img.dataobj)
 
 
 class NumpyReader(ImageReader):
@@ -1091,7 +1095,7 @@ class NumpyReader(ImageReader):
 
         return img_ if len(img_) > 1 else img_[0]
 
-    def get_data(self, img):
+    def get_data(self, img) -> Tuple[np.ndarray, Dict]:
         """
         Extract data array and metadata from loaded image and return them.
         This function returns two objects, first is numpy array of image data, second is dict of metadata.
@@ -1109,7 +1113,7 @@ class NumpyReader(ImageReader):
             img = (img,)
 
         for i in ensure_tuple(img):
-            header = {}
+            header: Dict[MetaKeys, Any] = {}
             if isinstance(i, np.ndarray):
                 # if `channel_dim` is None, can not detect the channel dim, use all the dims as spatial_shape
                 spatial_shape = np.asarray(i.shape)
@@ -1180,7 +1184,7 @@ class PILReader(ImageReader):
 
         return img_ if len(filenames) > 1 else img_[0]
 
-    def get_data(self, img):
+    def get_data(self, img) -> Tuple[np.ndarray, Dict]:
         """
         Extract data array and metadata from loaded image and return them.
         This function returns two objects, first is numpy array of image data, second is dict of metadata.

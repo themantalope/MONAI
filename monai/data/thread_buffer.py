@@ -9,10 +9,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from multiprocessing.context import SpawnContext
 from queue import Empty, Full, Queue
 from threading import Thread
+from typing import Optional
 
 import torch
 
@@ -41,7 +41,7 @@ class ThreadBuffer:
         self.buffer_size = buffer_size
         self.timeout = timeout
         self.buffer: Queue = Queue(self.buffer_size)
-        self.gen_thread = None
+        self.gen_thread: Optional[Thread] = None
         self.is_running = False
 
     def enqueue_values(self):

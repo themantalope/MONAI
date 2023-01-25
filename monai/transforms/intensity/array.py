@@ -26,7 +26,7 @@ from monai.config import DtypeLike
 from monai.config.type_definitions import NdarrayOrTensor, NdarrayTensor
 from monai.data.meta_obj import get_track_meta
 from monai.data.utils import get_random_patch, get_valid_patch_size
-from monai.networks.layers import GaussianFilter, HilbertTransform, SavitzkyGolayFilter
+from monai.networks.layers import GaussianFilter, HilbertTransform, MedianFilter, SavitzkyGolayFilter
 from monai.transforms.transform import RandomizableTransform, Transform
 from monai.transforms.utils import Fourier, equalize_hist, is_positive, rescale_array
 from monai.transforms.utils_pytorch_numpy_unification import clip, percentile, where
@@ -56,6 +56,7 @@ __all__ = [
     "MaskIntensity",
     "DetectEnvelope",
     "SavitzkyGolaySmooth",
+    "MedianSmooth",
     "GaussianSmooth",
     "RandGaussianSmooth",
     "GaussianSharpen",
@@ -206,7 +207,7 @@ class RandRicianNoise(RandomizableTransform):
                 raise RuntimeError("If channel_wise is False, mean must be a float or int number.")
             if not isinstance(self.std, (int, float)):
                 raise RuntimeError("If channel_wise is False, std must be a float or int number.")
-            std = self.std * img.std() if self.relative else self.std
+            std = self.std * img.std().item() if self.relative else self.std
             if not isinstance(std, (int, float)):
                 raise RuntimeError("std must be a float or int number.")
             img = self._add_noise(img, mean=self.mean, std=std)
@@ -219,12 +220,15 @@ class ShiftIntensity(Transform):
 
     Args:
         offset: offset value to shift the intensity of image.
+        safe: if `True`, then do safe dtype convert when intensity overflow. default to `False`.
+            E.g., `[256, -12]` -> `[array(0), array(244)]`. If `True`, then `[256, -12]` -> `[array(255), array(0)]`.
     """
 
     backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
 
-    def __init__(self, offset: float) -> None:
+    def __init__(self, offset: float, safe: bool = False) -> None:
         self.offset = offset
+        self.safe = safe
 
     def __call__(self, img: NdarrayOrTensor, offset: Optional[float] = None) -> NdarrayOrTensor:
         """
@@ -234,7 +238,7 @@ class ShiftIntensity(Transform):
         img = convert_to_tensor(img, track_meta=get_track_meta())
         offset = self.offset if offset is None else offset
         out = img + offset
-        out, *_ = convert_data_type(data=out, dtype=img.dtype)
+        out, *_ = convert_data_type(data=out, dtype=img.dtype, safe=self.safe)
 
         return out
 
@@ -246,11 +250,13 @@ class RandShiftIntensity(RandomizableTransform):
 
     backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
 
-    def __init__(self, offsets: Union[Tuple[float, float], float], prob: float = 0.1) -> None:
+    def __init__(self, offsets: Union[Tuple[float, float], float], safe: bool = False, prob: float = 0.1) -> None:
         """
         Args:
             offsets: offset range to randomly shift.
                 if single number, offset value is picked from (-offsets, offsets).
+            safe: if `True`, then do safe dtype convert when intensity overflow. default to `False`.
+                E.g., `[256, -12]` -> `[array(0), array(244)]`. If `True`, then `[256, -12]` -> `[array(255), array(0)]`.
             prob: probability of shift.
         """
         RandomizableTransform.__init__(self, prob)
@@ -261,7 +267,7 @@ class RandShiftIntensity(RandomizableTransform):
         else:
             self.offsets = (min(offsets), max(offsets))
         self._offset = self.offsets[0]
-        self._shifter = ShiftIntensity(self._offset)
+        self._shifter = ShiftIntensity(self._offset, safe)
 
     def randomize(self, data: Optional[Any] = None) -> None:
         super().randomize(None)
@@ -1133,6 +1139,35 @@ class DetectEnvelope(Transform):
         out = hilbert_transform(img_t.unsqueeze(0)).squeeze(0).abs()
         out, *_ = convert_to_dst_type(src=out, dst=img)
 
+        return out
+
+
+class MedianSmooth(Transform):
+    """
+    Apply median filter to the input data based on specified `radius` parameter.
+    A default value `radius=1` is provided for reference.
+
+    See also: :py:func:`monai.networks.layers.median_filter`
+
+    Args:
+        radius: if a list of values, must match the count of spatial dimensions of input data,
+            and apply every value in the list to 1 spatial dimension. if only 1 value provided,
+            use it for all spatial dimensions.
+    """
+
+    backend = [TransformBackends.TORCH]
+
+    def __init__(self, radius: Union[Sequence[int], int] = 1) -> None:
+        self.radius = radius
+
+    def __call__(self, img: NdarrayTensor) -> NdarrayTensor:
+        img = convert_to_tensor(img, track_meta=get_track_meta())
+        img_t, *_ = convert_data_type(img, torch.Tensor, dtype=torch.float)
+        spatial_dims = img_t.ndim - 1
+        r = ensure_tuple_rep(self.radius, spatial_dims)
+        median_filter_instance = MedianFilter(r, spatial_dims=spatial_dims)
+        out_t: torch.Tensor = median_filter_instance(img_t)
+        out, *_ = convert_to_dst_type(out_t, dst=img, dtype=out_t.dtype)
         return out
 
 

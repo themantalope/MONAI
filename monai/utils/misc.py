@@ -47,6 +47,7 @@ __all__ = [
     "MAX_SEED",
     "copy_to_device",
     "str2bool",
+    "str2list",
     "MONAIEnvVars",
     "ImageMetaKey",
     "is_module_ver_at_least",
@@ -55,6 +56,7 @@ __all__ = [
     "check_parent_dir",
     "save_obj",
     "label_union",
+    "path_to_uri",
 ]
 
 _seed = None
@@ -292,7 +294,7 @@ def set_determinism(
         if hasattr(torch, "use_deterministic_algorithms"):  # `use_deterministic_algorithms` is new in torch 1.8.0
             torch.use_deterministic_algorithms(use_deterministic_algorithms)
         elif hasattr(torch, "set_deterministic"):  # `set_deterministic` is new in torch 1.7.0
-            torch.set_deterministic(use_deterministic_algorithms)  # type: ignore
+            torch.set_deterministic(use_deterministic_algorithms)
         else:
             warnings.warn("use_deterministic_algorithms=True, but PyTorch version is too old to set the mode.")
 
@@ -363,21 +365,29 @@ def copy_to_device(
     return obj
 
 
-def str2bool(value: str, default: bool = False, raise_exc: bool = True) -> bool:
+def str2bool(value: Union[str, bool], default: bool = False, raise_exc: bool = True) -> bool:
     """
     Convert a string to a boolean. Case insensitive.
     True: yes, true, t, y, 1. False: no, false, f, n, 0.
 
     Args:
-        value: string to be converted to a boolean.
+        value: string to be converted to a boolean. If value is a bool already, simply return it.
         raise_exc: if value not in tuples of expected true or false inputs,
-            should we raise an exception? If not, return `None`.
+            should we raise an exception? If not, return `default`.
     Raises
         ValueError: value not in tuples of expected true or false inputs and
             `raise_exc` is `True`.
+    Useful with argparse, for example:
+        parser.add_argument("--convert", default=False, type=str2bool)
+        python mycode.py --convert=True
     """
+
+    if isinstance(value, bool):
+        return value
+
     true_set = ("yes", "true", "t", "y", "1")
     false_set = ("no", "false", "f", "n", "0")
+
     if isinstance(value, str):
         value = value.lower()
         if value in true_set:
@@ -388,6 +398,38 @@ def str2bool(value: str, default: bool = False, raise_exc: bool = True) -> bool:
     if raise_exc:
         raise ValueError(f"Got \"{value}\", expected a value from: {', '.join(true_set + false_set)}")
     return default
+
+
+def str2list(value: Optional[Union[str, list]], raise_exc: bool = True) -> Optional[list]:
+    """
+    Convert a string to a list.  Useful with argparse commandline arguments:
+        parser.add_argument("--blocks", default=[1,2,3], type=str2list)
+        python mycode.py --blocks=1,2,2,4
+
+    Args:
+        value: string (comma separated) to be converted to a list
+        raise_exc: if not possible to convert to a list, raise an exception
+    Raises
+        ValueError: value not a string or list or not possible to convert
+    """
+
+    if value is None:
+        return None
+    elif isinstance(value, list):
+        return value
+    elif isinstance(value, str):
+        v = value.split(",")
+        for i in range(len(v)):
+            try:
+                a = literal_eval(v[i].strip())  # attempt to convert
+                v[i] = a
+            except Exception:
+                pass
+        return v
+    elif raise_exc:
+        raise ValueError(f'Unable to convert "{value}", expected a comma-separated str, e.g. 1,2,3')
+
+    return None
 
 
 class MONAIEnvVars:
@@ -490,7 +532,7 @@ def save_obj(
     Args:
         obj: input object data to save.
         path: target file path to save the input object.
-        create_dir: whether to create dictionary of the path if not existng, default to `True`.
+        create_dir: whether to create dictionary of the path if not existing, default to `True`.
         atomic: if `True`, state is serialized to a temporary file first, then move to final destination.
             so that files are guaranteed to not be damaged if exception occurs. default to `True`.
         func: the function to save file, if None, default to `torch.save`.
@@ -543,3 +585,14 @@ def prob2class(x, sigmoid: bool = False, threshold: float = 0.5, **kwargs):
         threshold: threshold value to activate the sigmoid function.
     """
     return torch.argmax(x, **kwargs) if not sigmoid else (x > threshold).int()
+
+
+def path_to_uri(path: PathLike) -> str:
+    """
+    Convert a file path to URI. if not absolute path, will convert to absolute path first.
+
+    Args:
+        path: input file path to convert, can be a string or `Path` object.
+
+    """
+    return Path(path).absolute().as_uri()

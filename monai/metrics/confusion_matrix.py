@@ -100,9 +100,7 @@ class ConfusionMatrixMetric(CumulativeIterationMetric):
 
         return get_confusion_matrix(y_pred=y_pred, y=y, include_background=self.include_background)
 
-    def aggregate(  # type: ignore
-        self, compute_sample: bool = False, reduction: Union[MetricReduction, str, None] = None
-    ):
+    def aggregate(self, compute_sample: bool = False, reduction: Union[MetricReduction, str, None] = None):
         """
         Execute reduction for the confusion matrix values.
 
@@ -165,8 +163,8 @@ def get_confusion_matrix(y_pred: torch.Tensor, y: torch.Tensor, include_backgrou
     batch_size, n_class = y_pred.shape[:2]
     # convert to [BNS], where S is the number of pixels for one sample.
     # As for classification tasks, S equals to 1.
-    y_pred = y_pred.view(batch_size, n_class, -1)
-    y = y.view(batch_size, n_class, -1)
+    y_pred = y_pred.reshape(batch_size, n_class, -1)
+    y = y.reshape(batch_size, n_class, -1)
     tp = ((y_pred + y) == 2).float()
     tn = ((y_pred + y) == 0).float()
 

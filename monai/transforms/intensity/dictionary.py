@@ -32,6 +32,7 @@ from monai.transforms.intensity.array import (
     HistogramNormalize,
     KSpaceSpikeNoise,
     MaskIntensity,
+    MedianSmooth,
     NormalizeIntensity,
     RandAdjustContrast,
     RandBiasField,
@@ -78,6 +79,7 @@ __all__ = [
     "ScaleIntensityRangePercentilesd",
     "MaskIntensityd",
     "SavitzkyGolaySmoothd",
+    "MedianSmoothd",
     "GaussianSmoothd",
     "RandGaussianSmoothd",
     "GaussianSharpend",
@@ -124,6 +126,8 @@ __all__ = [
     "MaskIntensityDict",
     "SavitzkyGolaySmoothD",
     "SavitzkyGolaySmoothDict",
+    "MedianSmoothD",
+    "MedianSmoothDict",
     "GaussianSmoothD",
     "GaussianSmoothDict",
     "RandGaussianSmoothD",
@@ -300,6 +304,7 @@ class ShiftIntensityd(MapTransform):
         self,
         keys: KeysCollection,
         offset: float,
+        safe: bool = False,
         factor_key: Optional[str] = None,
         meta_keys: Optional[KeysCollection] = None,
         meta_key_postfix: str = DEFAULT_POST_FIX,
@@ -310,6 +315,8 @@ class ShiftIntensityd(MapTransform):
             keys: keys of the corresponding items to be transformed.
                 See also: :py:class:`monai.transforms.compose.MapTransform`
             offset: offset value to shift the intensity of image.
+            safe: if `True`, then do safe dtype convert when intensity overflow. default to `False`.
+                E.g., `[256, -12]` -> `[array(0), array(244)]`. If `True`, then `[256, -12]` -> `[array(255), array(0)]`.
             factor_key: if not None, use it as the key to extract a value from the corresponding
                 metadata dictionary of `key` at runtime, and multiply the `offset` to shift intensity.
                 Usually, `IntensityStatsd` transform can pre-compute statistics of intensity values
@@ -332,7 +339,7 @@ class ShiftIntensityd(MapTransform):
         if len(self.keys) != len(self.meta_keys):
             raise ValueError("meta_keys should have the same length as keys.")
         self.meta_key_postfix = ensure_tuple_rep(meta_key_postfix, len(self.keys))
-        self.shifter = ShiftIntensity(offset)
+        self.shifter = ShiftIntensity(offset, safe)
 
     def __call__(self, data) -> Dict[Hashable, NdarrayOrTensor]:
         d = dict(data)
@@ -357,6 +364,7 @@ class RandShiftIntensityd(RandomizableTransform, MapTransform):
         self,
         keys: KeysCollection,
         offsets: Union[Tuple[float, float], float],
+        safe: bool = False,
         factor_key: Optional[str] = None,
         meta_keys: Optional[KeysCollection] = None,
         meta_key_postfix: str = DEFAULT_POST_FIX,
@@ -369,6 +377,8 @@ class RandShiftIntensityd(RandomizableTransform, MapTransform):
                 See also: :py:class:`monai.transforms.compose.MapTransform`
             offsets: offset range to randomly shift.
                 if single number, offset value is picked from (-offsets, offsets).
+            safe: if `True`, then do safe dtype convert when intensity overflow. default to `False`.
+                E.g., `[256, -12]` -> `[array(0), array(244)]`. If `True`, then `[256, -12]` -> `[array(255), array(0)]`.
             factor_key: if not None, use it as the key to extract a value from the corresponding
                 metadata dictionary of `key` at runtime, and multiply the random `offset` to shift intensity.
                 Usually, `IntensityStatsd` transform can pre-compute statistics of intensity values
@@ -395,7 +405,7 @@ class RandShiftIntensityd(RandomizableTransform, MapTransform):
         if len(self.keys) != len(self.meta_keys):
             raise ValueError("meta_keys should have the same length as keys.")
         self.meta_key_postfix = ensure_tuple_rep(meta_key_postfix, len(self.keys))
-        self.shifter = RandShiftIntensity(offsets=offsets, prob=1.0)
+        self.shifter = RandShiftIntensity(offsets=offsets, safe=safe, prob=1.0)
 
     def set_random_state(
         self, seed: Optional[int] = None, state: Optional[np.random.RandomState] = None
@@ -988,6 +998,35 @@ class SavitzkyGolaySmoothd(MapTransform):
         return d
 
 
+class MedianSmoothd(MapTransform):
+    """
+    Dictionary-based wrapper of :py:class:`monai.transforms.MedianSmooth`.
+
+    Args:
+        keys: keys of the corresponding items to be transformed.
+            See also: :py:class:`monai.transforms.compose.MapTransform`
+        radius: if a list of values, must match the count of spatial dimensions of input data,
+            and apply every value in the list to 1 spatial dimension. if only 1 value provided,
+            use it for all spatial dimensions.
+        allow_missing_keys: don't raise exception if key is missing.
+
+    """
+
+    backend = MedianSmooth.backend
+
+    def __init__(
+        self, keys: KeysCollection, radius: Union[Sequence[int], int], allow_missing_keys: bool = False
+    ) -> None:
+        super().__init__(keys, allow_missing_keys)
+        self.converter = MedianSmooth(radius)
+
+    def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> Dict[Hashable, NdarrayOrTensor]:
+        d = dict(data)
+        for key in self.key_iterator(d):
+            d[key] = self.converter(d[key])
+        return d
+
+
 class GaussianSmoothd(MapTransform):
     """
     Dictionary-based wrapper of :py:class:`monai.transforms.GaussianSmooth`.
@@ -1544,7 +1583,7 @@ class RandCoarseDropoutd(RandomizableTransform, MapTransform):
         self.dropper.set_random_state(seed, state)
         return self
 
-    def __call__(self, data):
+    def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> Dict[Hashable, NdarrayOrTensor]:
         d = dict(data)
         self.randomize(None)
         if not self._do_transform:
@@ -1617,7 +1656,7 @@ class RandCoarseShuffled(RandomizableTransform, MapTransform):
         self.shuffle.set_random_state(seed, state)
         return self
 
-    def __call__(self, data):
+    def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> Dict[Hashable, NdarrayOrTensor]:
         d = dict(data)
         self.randomize(None)
         if not self._do_transform:
@@ -1780,6 +1819,7 @@ RandAdjustContrastD = RandAdjustContrastDict = RandAdjustContrastd
 ScaleIntensityRangePercentilesD = ScaleIntensityRangePercentilesDict = ScaleIntensityRangePercentilesd
 MaskIntensityD = MaskIntensityDict = MaskIntensityd
 SavitzkyGolaySmoothD = SavitzkyGolaySmoothDict = SavitzkyGolaySmoothd
+MedianSmoothD = MedianSmoothDict = MedianSmoothd
 GaussianSmoothD = GaussianSmoothDict = GaussianSmoothd
 RandGaussianSmoothD = RandGaussianSmoothDict = RandGaussianSmoothd
 GaussianSharpenD = GaussianSharpenDict = GaussianSharpend

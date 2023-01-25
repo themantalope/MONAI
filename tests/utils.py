@@ -47,6 +47,7 @@ from monai.utils.module import pytorch_after, version_leq
 from monai.utils.type_conversion import convert_data_type
 
 nib, _ = optional_import("nibabel")
+http_error, has_requests = optional_import("requests", name="HTTPError")
 
 quick_test_var = "QUICKTEST"
 _tf32_enabled = None
@@ -123,20 +124,26 @@ def assert_allclose(
 def skip_if_downloading_fails():
     try:
         yield
-    except (ContentTooShortError, HTTPError, ConnectionError) as e:
+    except (ContentTooShortError, HTTPError, ConnectionError) + (http_error,) if has_requests else () as e:
         raise unittest.SkipTest(f"error while downloading: {e}") from e
     except ssl.SSLError as ssl_e:
         if "decryption failed" in str(ssl_e):
             raise unittest.SkipTest(f"SSL error while downloading: {ssl_e}") from ssl_e
-    except RuntimeError as rt_e:
-        if "unexpected EOF" in str(rt_e):
+    except (RuntimeError, OSError) as rt_e:
+        err_str = str(rt_e)
+        if any(
+            k in err_str
+            for k in (
+                "unexpected EOF",  # incomplete download
+                "network issue",
+                "gdown dependency",  # gdown not installed
+                "md5 check",
+                "limit",  # HTTP Error 503: Egress is over the account limit
+                "authenticate",
+            )
+        ):
             raise unittest.SkipTest(f"error while downloading: {rt_e}") from rt_e  # incomplete download
-        if "network issue" in str(rt_e):
-            raise unittest.SkipTest(f"error while downloading: {rt_e}") from rt_e
-        if "gdown dependency" in str(rt_e):  # no gdown installed
-            raise unittest.SkipTest(f"error while downloading: {rt_e}") from rt_e
-        if "md5 check" in str(rt_e):
-            raise unittest.SkipTest(f"error while downloading: {rt_e}") from rt_e
+
         raise rt_e
 
 
@@ -345,6 +352,16 @@ def make_rand_affine(ndim: int = 3, random_state: Optional[np.random.RandomState
     return af
 
 
+def get_arange_img(size, dtype=np.float32, offset=0):
+    """
+    Returns an image as a numpy array (complete with channel as dim 0)
+    with contents that iterate like an arange.
+    """
+    n_elem = np.prod(size)
+    img = np.arange(offset, offset + n_elem, dtype=dtype).reshape(size)
+    return np.expand_dims(img, 0)
+
+
 class DistTestCase(unittest.TestCase):
     """
     testcase without _outcome, so that it's picklable.
@@ -404,6 +421,7 @@ class DistCall:
             timeout: Timeout for operations executed against the process group.
             init_method: URL specifying how to initialize the process group.
                 Default is "env://" or "file:///d:/a_temp" (windows) if unspecified.
+                If ``"no_init"``, the `dist.init_process_group` must be called within the code to be tested.
             backend: The backend to use. Depending on build-time configurations,
                 valid values include ``mpi``, ``gloo``, and ``nccl``.
             daemon: the process’s daemon flag.
@@ -451,13 +469,14 @@ class DistCall:
             if torch.cuda.is_available():
                 torch.cuda.set_device(int(local_rank))  # using device ids from CUDA_VISIBILE_DEVICES
 
-            dist.init_process_group(
-                backend=self.backend,
-                init_method=self.init_method,
-                timeout=self.timeout,
-                world_size=int(os.environ["WORLD_SIZE"]),
-                rank=int(os.environ["RANK"]),
-            )
+            if self.init_method != "no_init":
+                dist.init_process_group(
+                    backend=self.backend,
+                    init_method=self.init_method,
+                    timeout=self.timeout,
+                    world_size=int(os.environ["WORLD_SIZE"]),
+                    rank=int(os.environ["RANK"]),
+                )
             func(*args, **kwargs)
             # the primary node lives longer to
             # avoid _store_based_barrier, RuntimeError: Broken pipe
@@ -693,16 +712,21 @@ def test_script_save(net, *inputs, device=None, rtol=1e-4, atol=0.0):
     """
     # TODO: would be nice to use GPU if available, but it currently causes CI failures.
     device = "cpu"
-    with tempfile.TemporaryDirectory() as tempdir:
-        convert_to_torchscript(
-            model=net,
-            filename_or_obj=os.path.join(tempdir, "model.ts"),
-            verify=True,
-            inputs=inputs,
-            device=device,
-            rtol=rtol,
-            atol=atol,
-        )
+    try:
+        with tempfile.TemporaryDirectory() as tempdir:
+            convert_to_torchscript(
+                model=net,
+                filename_or_obj=os.path.join(tempdir, "model.ts"),
+                verify=True,
+                inputs=inputs,
+                device=device,
+                rtol=rtol,
+                atol=atol,
+            )
+    except (RuntimeError, AttributeError):
+        if sys.version_info.major == 3 and sys.version_info.minor == 11:
+            warnings.warn("skipping py 3.11")
+            return
 
 
 def download_url_or_skip_test(*args, **kwargs):
@@ -724,7 +748,7 @@ def query_memory(n=2):
         free_memory = np.asarray(free_memory, dtype=float).T
         free_memory[1] += free_memory[0]  # combine 0/1 column measures
         ids = np.lexsort(free_memory)[:n]
-    except (TypeError, IndexError, OSError):
+    except (TypeError, ValueError, IndexError, OSError):
         ids = range(n) if isinstance(n, int) else []
     return ",".join(f"{int(x)}" for x in ids)
 
@@ -771,11 +795,9 @@ TEST_TORCH_AND_META_TENSORS: Tuple[Callable] = TEST_TORCH_TENSORS + (_metatensor
 # alias for branch tests
 TEST_NDARRAYS_ALL = TEST_NDARRAYS
 
-
 TEST_DEVICES = [[torch.device("cpu")]]
 if torch.cuda.is_available():
     TEST_DEVICES.append([torch.device("cuda")])
-
 
 if __name__ == "__main__":
     print("\n", query_memory(), sep="\n")  # print to stdout

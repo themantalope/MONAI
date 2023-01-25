@@ -9,7 +9,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple, TypeVar, Union
 
 import numpy as np
 import torch
@@ -342,7 +342,10 @@ def isnan(x: NdarrayOrTensor) -> NdarrayOrTensor:
     return torch.isnan(x)
 
 
-def ascontiguousarray(x: NdarrayTensor, **kwargs) -> NdarrayOrTensor:
+T = TypeVar("T")
+
+
+def ascontiguousarray(x: Union[NdarrayTensor, T], **kwargs) -> Union[NdarrayOrTensor, T]:
     """`np.ascontiguousarray` with equivalent implementation for torch (`contiguous`).
 
     Args:
@@ -387,13 +390,13 @@ def mode(x: NdarrayTensor, dim: int = -1, to_long: bool = True) -> NdarrayTensor
     return o
 
 
-def unique(x: NdarrayTensor) -> NdarrayTensor:
+def unique(x: NdarrayTensor, **kwargs) -> NdarrayTensor:
     """`torch.unique` with equivalent implementation for numpy.
 
     Args:
         x: array/tensor.
     """
-    return np.unique(x) if isinstance(x, (np.ndarray, list)) else torch.unique(x)  # type: ignore
+    return np.unique(x, **kwargs) if isinstance(x, (np.ndarray, list)) else torch.unique(x, **kwargs)  # type: ignore
 
 
 def linalg_inv(x: NdarrayTensor) -> NdarrayTensor:

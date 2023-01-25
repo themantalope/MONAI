@@ -32,9 +32,15 @@ if TYPE_CHECKING:
     from ignite.engine import Engine, EventEnum
     from ignite.metrics import Metric
 else:
-    Engine, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Engine")
-    Metric, _ = optional_import("ignite.metrics", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Metric")
-    EventEnum, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "EventEnum")
+    Engine, _ = optional_import(
+        "ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Engine", as_type="decorator"
+    )
+    Metric, _ = optional_import(
+        "ignite.metrics", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Metric", as_type="decorator"
+    )
+    EventEnum, _ = optional_import(
+        "ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "EventEnum", as_type="decorator"
+    )
 
 
 class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optional_import
@@ -87,7 +93,6 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
             https://pytorch.org/docs/stable/amp.html#torch.cuda.amp.autocast.
 
     Raises:
-        TypeError: When ``device`` is not a ``torch.Device``.
         TypeError: When ``data_loader`` is not a ``torch.utils.data.DataLoader``.
         TypeError: When ``key_metric`` is not a ``Optional[dict]``.
         TypeError: When ``additional_metrics`` is not a ``Optional[dict]``.
@@ -96,7 +101,7 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
 
     def __init__(
         self,
-        device: torch.device,
+        device: Union[torch.device, str],
         max_epochs: int,
         data_loader: Union[Iterable, DataLoader],
         epoch_length: Optional[int] = None,
@@ -119,8 +124,6 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
             super().__init__(iteration_update)
         else:
             super().__init__(self._iteration)
-        if not isinstance(device, torch.device):
-            raise TypeError(f"Device must be a torch.device but is {type(device).__name__}.")
 
         if isinstance(data_loader, DataLoader):
             sampler = data_loader.__dict__["sampler"]
@@ -149,7 +152,7 @@ class Workflow(IgniteEngine):  # type: ignore[valid-type, misc] # due to optiona
             metrics={},
             metric_details={},
             dataloader=None,
-            device=device,
+            device=device if isinstance(device, torch.device) or device is None else torch.device(device),
             key_metric_name=None,  # we can set many metrics, only use key_metric to compare and save the best model
             best_metric=-1,
             best_metric_epoch=-1,

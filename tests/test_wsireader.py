@@ -11,12 +11,14 @@
 
 import os
 import unittest
+from typing import Any, Tuple
 from unittest import skipUnless
 
 import numpy as np
 from numpy.testing import assert_array_equal
 from parameterized import parameterized
 
+from monai.config import PathLike
 from monai.data import DataLoader, Dataset
 from monai.data.image_reader import WSIReader as WSIReaderDeprecated
 from monai.data.wsi_reader import WSIReader
@@ -107,7 +109,6 @@ TEST_CASE_4 = [
     np.moveaxis(np.array([[[239], [239]], [[239], [239]], [[239], [239]]]), 0, -1),
 ]
 
-
 TEST_CASE_5 = [
     FILE_PATH,
     {"level": 2},
@@ -126,7 +127,6 @@ TEST_CASE_MULTI_WSI = [
         axis=0,
     ),
 ]
-
 
 TEST_CASE_RGB_0 = [np.ones((3, 2, 2), dtype=np.uint8)]  # CHW
 
@@ -254,7 +254,9 @@ class WSIReaderDeprecatedTests:
                     reader.get_data(img_obj)
 
         @parameterized.expand([TEST_CASE_TRANSFORM_0])
-        def test_with_dataloader(self, file_path, level, expected_spatial_shape, expected_shape):
+        def test_with_dataloader(
+            self, file_path: PathLike, level: int, expected_spatial_shape: Any, expected_shape: Tuple[int, ...]
+        ):
             train_transform = Compose(
                 [
                     LoadImaged(keys=["image"], reader=WSIReaderDeprecated, backend=self.backend, level=level),
@@ -359,7 +361,9 @@ class WSIReaderTests:
                     reader.get_data(img_obj)
 
         @parameterized.expand([TEST_CASE_TRANSFORM_0])
-        def test_with_dataloader(self, file_path, level, expected_spatial_shape, expected_shape):
+        def test_with_dataloader(
+            self, file_path: PathLike, level: int, expected_spatial_shape: Any, expected_shape: Tuple[int, ...]
+        ):
             train_transform = Compose(
                 [
                     LoadImaged(keys=["image"], reader=WSIReader, backend=self.backend, level=level),
@@ -374,7 +378,9 @@ class WSIReaderTests:
             self.assertTupleEqual(data["image"].shape, expected_shape)
 
         @parameterized.expand([TEST_CASE_TRANSFORM_0])
-        def test_with_dataloader_batch(self, file_path, level, expected_spatial_shape, expected_shape):
+        def test_with_dataloader_batch(
+            self, file_path: PathLike, level: int, expected_spatial_shape: Any, expected_shape: Tuple[int, ...]
+        ):
             train_transform = Compose(
                 [
                     LoadImaged(keys=["image"], reader=WSIReader, backend=self.backend, level=level),

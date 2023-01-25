@@ -11,11 +11,12 @@
 
 import warnings
 from os import path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import numpy as np
 import torch
 
+from monai.apps.auto3dseg.transforms import EnsureSameShaped
 from monai.apps.utils import get_logger
 from monai.auto3dseg import SegSummarizer
 from monai.auto3dseg.utils import datafold_read
@@ -23,16 +24,7 @@ from monai.bundle import config_parser
 from monai.bundle.config_parser import ConfigParser
 from monai.data import DataLoader, Dataset
 from monai.data.utils import no_collation
-from monai.transforms import (
-    Compose,
-    EnsureChannelFirstd,
-    EnsureTyped,
-    Lambdad,
-    LoadImaged,
-    Orientationd,
-    SqueezeDimd,
-    ToDeviced,
-)
+from monai.transforms import Compose, EnsureTyped, LoadImaged, Orientationd
 from monai.utils import StrEnum, min_version, optional_import
 from monai.utils.enums import DataStatsKeys, ImageStatsKeys
 
@@ -48,10 +40,6 @@ tqdm, has_tqdm = optional_import("tqdm", "4.47.0", min_version, "tqdm")
 logger = get_logger(module_name=__name__)
 
 __all__ = ["DataAnalyzer"]
-
-
-def _argmax_if_multichannel(x):
-    return torch.argmax(x, dim=0, keepdim=True) if x.shape[0] > 1 else x
 
 
 class DataAnalyzer:
@@ -76,11 +64,17 @@ class DataAnalyzer:
         image_key: a string that user specify for the image. The DataAnalyzer will look it up in the
             datalist to locate the image files of the dataset.
         label_key: a string that user specify for the label. The DataAnalyzer will look it up in the
-            datalist to locate the label files of the dataset. If label_key is None, the DataAnalyzer
-            will skip looking for labels and all label-related operations.
+            datalist to locate the label files of the dataset. If label_key is NoneType or "None",
+            the DataAnalyzer will skip looking for labels and all label-related operations.
+        hist_bins: bins to compute histogram for each image channel.
+        hist_range: ranges to compute histogram for each image channel.
+        fmt: format used to save the analysis results. Defaults to "yaml".
+        histogram_only: whether to only compute histograms. Defaults to False.
+        extra_params: other optional arguments. Currently supported arguments are :
+            'allowed_shape_difference' (default 5) can be used to change the default tolerance of
+            the allowed shape differences between the image and label items. In case of shape mismatch below
+            the tolerance, the label image will be resized to match the image using nearest interpolation.
 
-    Raises:
-        ValueError if device is GPU and worker > 0.
 
     Examples:
         .. code-block:: python
@@ -121,11 +115,16 @@ class DataAnalyzer:
         dataroot: str = "",
         output_path: str = "./data_stats.yaml",
         average: bool = True,
-        do_ccp: bool = True,
-        device: Union[str, torch.device] = "cuda",
-        worker: int = 0,
+        do_ccp: bool = False,
+        device: Union[str, torch.device] = "cpu",
+        worker: int = 2,
         image_key: str = "image",
         label_key: Optional[str] = "label",
+        hist_bins: Optional[Union[list, int]] = 0,
+        hist_range: Optional[list] = None,
+        fmt: Optional[str] = "yaml",
+        histogram_only: bool = False,
+        **extra_params,
     ):
         if path.isfile(output_path):
             warnings.warn(f"File {output_path} already exists and will be overwritten.")
@@ -139,10 +138,12 @@ class DataAnalyzer:
         self.device = torch.device(device)
         self.worker = worker
         self.image_key = image_key
-        self.label_key = label_key
-
-        if (self.device.type == "cuda") and (worker > 0):
-            raise ValueError("CUDA does not support multiple subprocess. If device is GPU, please set worker to 0")
+        self.label_key = None if label_key == "None" else label_key
+        self.hist_bins = hist_bins
+        self.hist_range: list = [-500, 500] if hist_range is None else hist_range
+        self.fmt = fmt
+        self.histogram_only = histogram_only
+        self.extra_params = extra_params
 
     @staticmethod
     def _check_data_uniformity(keys: List[str], result: Dict):
@@ -165,10 +166,14 @@ class DataAnalyzer:
 
         return True
 
-    def get_all_case_stats(self):
+    def get_all_case_stats(self, key="training", transform_list=None):
         """
         Get all case stats. Caller of the DataAnalyser class. The function iterates datalist and
         call get_case_stats to generate stats. Then get_case_summary is called to combine results.
+
+        Args:
+            key: dataset key
+            transform_list: option list of transforms before SegSummarizer
 
         Returns:
             A data statistics dictionary containing
@@ -190,35 +195,62 @@ class DataAnalyzer:
             dictionary will include .nan/.inf in the statistics.
 
         """
-        summarizer = SegSummarizer(self.image_key, self.label_key, average=self.average, do_ccp=self.do_ccp)
+        summarizer = SegSummarizer(
+            self.image_key,
+            self.label_key,
+            average=self.average,
+            do_ccp=self.do_ccp,
+            hist_bins=self.hist_bins,
+            hist_range=self.hist_range,
+            histogram_only=self.histogram_only,
+        )
         keys = list(filter(None, [self.image_key, self.label_key]))
-        transform_list = [
-            LoadImaged(keys=keys),
-            EnsureChannelFirstd(keys=keys),  # this creates label to be (1,H,W,D)
-            Orientationd(keys=keys, axcodes="RAS"),
-            EnsureTyped(keys=keys, data_type="tensor"),
-            Lambdad(keys=self.label_key, func=_argmax_if_multichannel) if self.label_key else None,
-            SqueezeDimd(keys=["label"], dim=0) if self.label_key else None,
-            ToDeviced(keys=keys, device=self.device),
-            summarizer,
-        ]
+        if transform_list is None:
+            transform_list = [
+                LoadImaged(keys=keys, ensure_channel_first=True),
+                EnsureTyped(keys=keys, data_type="tensor", dtype=torch.float),
+                Orientationd(keys=keys, axcodes="RAS"),
+            ]
+            if self.label_key is not None:
 
-        transform = Compose(transforms=list(filter(None, transform_list)))
+                allowed_shape_difference = self.extra_params.pop("allowed_shape_difference", 5)
+                transform_list.append(
+                    EnsureSameShaped(
+                        keys=self.label_key,
+                        source_key=self.image_key,
+                        allowed_shape_difference=allowed_shape_difference,
+                    )
+                )
 
-        files, _ = datafold_read(datalist=self.datalist, basedir=self.dataroot, fold=-1)
+        transform = Compose(transform_list)
+
+        files, _ = datafold_read(datalist=self.datalist, basedir=self.dataroot, fold=-1, key=key)
         dataset = Dataset(data=files, transform=transform)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=self.worker, collate_fn=no_collation)
-        result = {DataStatsKeys.SUMMARY: {}, DataStatsKeys.BY_CASE: []}
+        result: Dict[DataStatsKeys, Any] = {DataStatsKeys.SUMMARY: {}, DataStatsKeys.BY_CASE: []}
+
         if not has_tqdm:
             warnings.warn("tqdm is not installed. not displaying the caching progress.")
 
         for batch_data in tqdm(dataloader) if has_tqdm else dataloader:
-            d = batch_data[0]
+
+            batch_data = batch_data[0]
+            batch_data[self.image_key] = batch_data[self.image_key].to(self.device)
+
+            if self.label_key is not None:
+                label = batch_data[self.label_key]
+                label = torch.argmax(label, dim=0) if label.shape[0] > 1 else label[0]
+                batch_data[self.label_key] = label.to(self.device)
+
+            d = summarizer(batch_data)
+
             stats_by_cases = {
                 DataStatsKeys.BY_CASE_IMAGE_PATH: d[DataStatsKeys.BY_CASE_IMAGE_PATH],
                 DataStatsKeys.BY_CASE_LABEL_PATH: d[DataStatsKeys.BY_CASE_LABEL_PATH],
                 DataStatsKeys.IMAGE_STATS: d[DataStatsKeys.IMAGE_STATS],
             }
+            if self.hist_bins != 0:
+                stats_by_cases.update({DataStatsKeys.IMAGE_HISTOGRAM: d[DataStatsKeys.IMAGE_HISTOGRAM]})
 
             if self.label_key is not None:
                 stats_by_cases.update(
@@ -229,11 +261,21 @@ class DataAnalyzer:
                 )
             result[DataStatsKeys.BY_CASE].append(stats_by_cases)
 
-        result[DataStatsKeys.SUMMARY] = summarizer.summarize(result[DataStatsKeys.BY_CASE])
+        result[DataStatsKeys.SUMMARY] = summarizer.summarize(cast(List, result[DataStatsKeys.BY_CASE]))
 
         if not self._check_data_uniformity([ImageStatsKeys.SPACING], result):
-            logger.warning("Data is not completely uniform. MONAI transforms may provide unexpected result")
+            print("Data spacing is not completely uniform. MONAI transforms may provide unexpected result")
 
-        ConfigParser.export_config_file(result, self.output_path, fmt="yaml", default_flow_style=None)
+        if self.output_path:
+            ConfigParser.export_config_file(
+                result, self.output_path, fmt=self.fmt, default_flow_style=None, sort_keys=False
+            )
+
+        # release memory
+        d = None
+        if self.device.type == "cuda":
+            # release unreferenced tensors to mitigate OOM
+            # limitation: https://github.com/pytorch/pytorch/issues/12873#issuecomment-482916237
+            torch.cuda.empty_cache()
 
         return result

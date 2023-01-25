@@ -22,9 +22,29 @@ Generic Interfaces
     :members:
     :special-members: __call__
 
+`RandomizableTrait`
+^^^^^^^^^^^^^^^^^^^
+.. autoclass:: RandomizableTrait
+    :members:
+
+`LazyTrait`
+^^^^^^^^^^^
+.. autoclass:: LazyTrait
+    :members:
+
+`MultiSampleTrait`
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: MultiSampleTrait
+    :members:
+
 `Randomizable`
 ^^^^^^^^^^^^^^
 .. autoclass:: Randomizable
+    :members:
+
+`LazyTransform`
+^^^^^^^^^^^^^^^
+.. autoclass:: LazyTransform
     :members:
 
 `RandomizableTransform`
@@ -61,6 +81,11 @@ Generic Interfaces
 `OneOf`
 ^^^^^^^
 .. autoclass:: OneOf
+    :members:
+
+`RandomOrder`
+^^^^^^^^^^^^^
+.. autoclass:: RandomOrder
     :members:
 
 Vanilla Transforms
@@ -333,6 +358,14 @@ Intensity
 .. image:: https://github.com/Project-MONAI/DocImages/raw/main/transforms/SavitzkyGolaySmooth.png
     :alt: example of SavitzkyGolaySmooth
 .. autoclass:: SavitzkyGolaySmooth
+    :members:
+    :special-members: __call__
+
+`MedianSmooth`
+""""""""""""""
+.. image:: https://github.com/Project-MONAI/DocImages/raw/main/transforms/MedianSmooth.png
+    :alt: example of MedianSmooth
+.. autoclass:: MedianSmooth
     :members:
     :special-members: __call__
 
@@ -1415,6 +1448,14 @@ Intensity (Dict)
     :members:
     :special-members: __call__
 
+`MedianSmoothd`
+"""""""""""""""
+.. image:: https://github.com/Project-MONAI/DocImages/raw/main/transforms/MedianSmoothd.png
+    :alt: example of MedianSmoothd
+.. autoclass:: MedianSmoothd
+    :members:
+    :special-members: __call__
+
 `GaussianSmoothd`
 """""""""""""""""
 .. image:: https://github.com/Project-MONAI/DocImages/raw/main/transforms/GaussianSmoothd.png
@@ -1936,6 +1977,12 @@ Utility (Dict)
 `SelectItemsd`
 """"""""""""""
 .. autoclass:: SelectItemsd
+    :members:
+    :special-members: __call__
+
+`FlattenSubKeysd`
+"""""""""""""""""
+.. autoclass:: FlattenSubKeysd
     :members:
     :special-members: __call__
 

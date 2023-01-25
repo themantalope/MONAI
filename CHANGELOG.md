@@ -5,6 +5,104 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2022-12-19
+### Added
+* Hover-Net based digital pathology workflows including new network, loss, postprocessing, metric, training, and inference modules
+* Various enhancements for Auto3dSeg `AutoRunner` including template caching, selection, and a dry-run mode `nni_dry_run`
+* Various enhancements for Auto3dSeg algo templates including new state-of-the-art configurations, optimized GPU memory utilization
+* New bundle API and configurations to support experiment management including `MLFlowHandler`
+* New `bundle.script` API to support model zoo query and download
+* `LossMetric` metric to compute loss as cumulative metric measurement
+* Transforms and base transform APIs including `RandomizableTrait` and `MedianSmooth`
+* `runtime_cache` option for `CacheDataset` and the derived classes to allow for shared caching on the fly
+* Flexible name formatter for `SaveImage` transform
+* `pending_operations` MetaTensor property and basic APIs for lazy image resampling
+* Contrastive sensitivity for SSIM metric
+* Extensible backbones for `FlexibleUNet`
+* Generalize `SobelGradients` to 3D and any spatial axes
+* `warmup_multiplier` option for `WarmupCosineSchedule`
+* F beta score metric based on confusion matrix metric
+* Support of key overwriting in `Lambdad`
+* Basic premerge tests for Python 3.11
+* Unit and integration tests for CUDA 11.6, 11.7 and A100 GPU
+* `DataAnalyzer` handles minor image-label shape inconsistencies
+### Fixed
+* Review and enhance previously untyped APIs with additional type annotations and casts
+* `switch_endianness` in LoadImage now supports tensor input
+* Reduced memory footprint for various Auto3dSeg tests
+* Issue of `@` in `monai.bundle.ReferenceResolver`
+* Compatibility issue with ITK-Python 5.3 (converting `itkMatrixF44` for default collate)
+* Inconsistent of sform and qform when using different backends for `SaveImage`
+* `MetaTensor.shape` call now returns a `torch.Size` instead of tuple
+* Issue of channel reduction in `GeneralizedDiceLoss`
+* Issue of background handling before softmax in `DiceFocalLoss`
+* Numerical issue of `LocalNormalizedCrossCorrelationLoss`
+* Issue of incompatible view size in `ConfusionMatrixMetric`
+* `NetAdapter` compatibility with Torchscript
+* Issue of `extract_levels` in `RegUNet`
+* Optional `bias_downsample` in `ResNet`
+* `dtype` overflow for `ShiftIntensity` transform
+* Randomized transforms such as `RandCuCIM` now inherit `RandomizableTrait`
+* `fg_indices.size` compatibility issue in `generate_pos_neg_label_crop_centers`
+* Issue when inverting `ToTensor`
+* Issue of capital letters in filename suffixes check in `LoadImage`
+* Minor tensor compatibility issues in `apps.nuclick.transforms`
+* Issue of float16 in `verify_net_in_out`
+* `std` variable type issue for `RandRicianNoise`
+* `DataAnalyzer` accepts `None` as label key and checks empty labels
+* `iter_patch_position` now has a smaller memory footprint
+* `CumulativeAverage` has been refactored and enhanced to allow for simple tracking of metric running stats.
+* Multi-threading issue for `MLFlowHandler`
+### Changed
+* Printing a MetaTensor now generates a less verbose representation
+* `DistributedSampler` raises a ValueError if there are too few devices
+* OpenCV and `VideoDataset` modules are loaded lazily to avoid dependency issues
+* `device` in `monai.engines.Workflow` supports string values
+* `Activations` and `AsDiscrete` take `kwargs` as additional arguments
+* `DataAnalyzer` is now more efficient and writes summary stats before detailed all case stats
+* Base Docker image upgraded to `nvcr.io/nvidia/pytorch:22.10-py3` from `nvcr.io/nvidia/pytorch:22.09-py3`
+* Simplified Conda environment file `environment-dev.yml`
+* Versioneer dependency upgraded to `0.23` from `0.19`
+### Deprecated
+* `NibabelReader` input argument `dtype` is deprecated, the reader will use the original dtype of the image
+### Removed
+* Support for PyTorch 1.7
+
+## [1.0.1] - 2022-10-24
+### Fixes
+* DiceCELoss for multichannel targets
+* Auto3DSeg DataAnalyzer out-of-memory error and other minor issues
+* An optional flag issue in the RetinaNet detector
+* An issue with output offset for Spacing
+* A `LoadImage` issue when `track_meta` is `False`
+* 1D data output error in `VarAutoEncoder`
+* An issue with resolution computing in `ImageStats`
+### Added
+* Flexible min/max pixdim options for Spacing
+* Upsample mode `deconvgroup` and optional kernel sizes
+* Docstrings for gradient-based saliency maps
+* Occlusion sensitivity to use sliding window inference
+* Enhanced Gaussian window and device assignments for sliding window inference
+* Multi-GPU support for MonaiAlgo
+* `ClientAlgoStats` and `MonaiAlgoStats` for federated summary statistics
+* MetaTensor support for `OneOf`
+* Add a file check for bundle logging config
+* Additional content and an authentication token option for bundle info API
+* An anti-aliasing option for `Resized`
+* `SlidingWindowInferer` adaptive device based on `cpu_thresh`
+* `SegResNetDS` with deep supervision and non-isotropic kernel support
+* Premerge tests for Python 3.10
+### Changed
+* Base Docker image upgraded to `nvcr.io/nvidia/pytorch:22.09-py3` from `nvcr.io/nvidia/pytorch:22.08-py3`
+* Replace `None` type metadata content with `"none"` for `collate_fn` compatibility
+* HoVerNet Mode and Branch to independent StrEnum
+* Automatically infer device from the first item in random elastic deformation dict
+* Add channel dim in `ComputeHoVerMaps` and `ComputeHoVerMapsd`
+* Remove batch dim in `SobelGradients` and `SobelGradientsd`
+### Deprecated
+* Deprecating `compute_meandice`, `compute_meaniou` in `monai.metrics`, in favor of
+`compute_dice` and `compute_iou` respectively
+
 ## [1.0.0] - 2022-09-16
 ### Added
 * `monai.auto3dseg` base APIs and `monai.apps.auto3dseg` components for automated machine learning (AutoML) workflow
@@ -608,8 +706,10 @@ the postprocessing steps should be used before calling the metrics methods
 
 [highlights]: https://github.com/Project-MONAI/MONAI/blob/master/docs/source/highlights.md
 
-[Unreleased]: https://github.com/Project-MONAI/MONAI/compare/1.0.0...HEAD
-[1.0.0]: https://github.com/Project-MONAI/MONAI/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/Project-MONAI/MONAI/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/Project-MONAI/MONAI/compare/1.0.1...1.1.0
+[1.0.1]: https://github.com/Project-MONAI/MONAI/compare/1.0.0...1.0.1
+[1.0.0]: https://github.com/Project-MONAI/MONAI/compare/0.9.1...1.0.0
 [0.9.1]: https://github.com/Project-MONAI/MONAI/compare/0.9.0...0.9.1
 [0.9.0]: https://github.com/Project-MONAI/MONAI/compare/0.8.1...0.9.0
 [0.8.1]: https://github.com/Project-MONAI/MONAI/compare/0.8.0...0.8.1

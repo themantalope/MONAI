@@ -34,6 +34,7 @@ from .enums import (
     InterpolateMode,
     InverseKeys,
     JITMetadataKeys,
+    LazyAttr,
     LossReduction,
     MetaKeys,
     Method,
@@ -72,12 +73,14 @@ from .misc import (
     is_scalar_tensor,
     issequenceiterable,
     list_to_dict,
+    path_to_uri,
     progress_bar,
     sample_slices,
     save_obj,
     set_determinism,
     star_zip_with,
     str2bool,
+    str2list,
     zip_with,
 )
 from .module import (

@@ -32,7 +32,6 @@
 # * Neither the name of the copyright holder nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
-
 """
 Part of this script is adapted from
 https://github.com/pytorch/vision/blob/main/torchvision/models/detection/retinanet.py
@@ -605,7 +604,7 @@ class RetinaNetDetector(nn.Module):
     ) -> List[Dict[str, Tensor]]:
         """
         Postprocessing to generate detection result from classification logits and box regression.
-        Use self.box_selector to select the final outut boxes for each image.
+        Use self.box_selector to select the final output boxes for each image.
 
         Args:
             head_outputs_reshape: reshaped head_outputs. ``head_output_reshape[self.cls_key]`` is a Tensor

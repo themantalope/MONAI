@@ -26,7 +26,18 @@ from monai.utils import MAX_SEED, ensure_tuple, first
 from monai.utils.enums import TransformBackends
 from monai.utils.misc import MONAIEnvVars
 
-__all__ = ["ThreadUnsafe", "apply_transform", "Randomizable", "RandomizableTransform", "Transform", "MapTransform"]
+__all__ = [
+    "ThreadUnsafe",
+    "apply_transform",
+    "LazyTrait",
+    "RandomizableTrait",
+    "MultiSampleTrait",
+    "Randomizable",
+    "LazyTransform",
+    "RandomizableTransform",
+    "Transform",
+    "MapTransform",
+]
 
 ReturnType = TypeVar("ReturnType")
 
@@ -118,6 +129,56 @@ def apply_transform(
         raise RuntimeError(f"applying transform {transform}") from e
 
 
+class LazyTrait:
+    """
+    An interface to indicate that the transform has the capability to execute using
+    MONAI's lazy resampling feature. In order to do this, the implementing class needs
+    to be able to describe its operation as an affine matrix or grid with accompanying metadata.
+    This interface can be extended from by people adapting transforms to the MONAI framework as
+    well as by implementors of MONAI transforms.
+    """
+
+    @property
+    def lazy_evaluation(self):
+        """
+        Get whether lazy_evaluation is enabled for this transform instance.
+        Returns:
+            True if the transform is operating in a lazy fashion, False if not.
+        """
+        raise NotImplementedError()
+
+    @lazy_evaluation.setter
+    def lazy_evaluation(self, enabled: bool):
+        """
+        Set whether lazy_evaluation is enabled for this transform instance.
+        Args:
+            enabled: True if the transform should operate in a lazy fashion, False if not.
+        """
+        raise NotImplementedError()
+
+
+class RandomizableTrait:
+    """
+    An interface to indicate that the transform has the capability to perform
+    randomized transforms to the data that it is called upon. This interface
+    can be extended from by people adapting transforms to the MONAI framework as well as by
+    implementors of MONAI transforms.
+    """
+
+    pass
+
+
+class MultiSampleTrait:
+    """
+    An interface to indicate that the transform has the capability to return multiple samples
+    given an input, such as when performing random crops of a sample. This interface can be
+    extended from by people adapting transforms to the MONAI framework as well as by implementors
+    of MONAI transforms.
+    """
+
+    pass
+
+
 class ThreadUnsafe:
     """
     A class to denote that the transform will mutate its member variables,
@@ -131,7 +192,7 @@ class ThreadUnsafe:
     pass
 
 
-class Randomizable(ThreadUnsafe):
+class Randomizable(ThreadUnsafe, RandomizableTrait):
     """
     An interface for handling random state locally, currently based on a class
     variable `R`, which is an instance of `np.random.RandomState`.  This
@@ -251,6 +312,26 @@ class Transform(ABC):
         raise NotImplementedError(f"Subclass {self.__class__.__name__} must implement this method.")
 
 
+class LazyTransform(Transform, LazyTrait):
+    """
+    An implementation of functionality for lazy transforms that can be subclassed by array and
+    dictionary transforms to simplify implementation of new lazy transforms.
+    """
+
+    def __init__(self, lazy_evaluation: Optional[bool] = True):
+        self.lazy_evaluation = lazy_evaluation
+
+    @property
+    def lazy_evaluation(self):
+        return self.lazy_evaluation
+
+    @lazy_evaluation.setter
+    def lazy_evaluation(self, lazy_evaluation: bool):
+        if not isinstance(lazy_evaluation, bool):
+            raise TypeError("'lazy_evaluation must be a bool but is of " f"type {type(lazy_evaluation)}'")
+        self.lazy_evaluation = lazy_evaluation
+
+
 class RandomizableTransform(Randomizable, Transform):
     """
     An interface for handling random state locally, currently based on a class variable `R`,
@@ -323,11 +404,11 @@ class MapTransform(Transform):
     def __new__(cls, *args, **kwargs):
         if config.USE_META_DICT:
             # call_update after MapTransform.__call__
-            cls.__call__ = transforms.attach_hook(cls.__call__, MapTransform.call_update, "post")
+            cls.__call__ = transforms.attach_hook(cls.__call__, MapTransform.call_update, "post")  # type: ignore
 
             if hasattr(cls, "inverse"):
                 # inverse_update before InvertibleTransform.inverse
-                cls.inverse = transforms.attach_hook(cls.inverse, transforms.InvertibleTransform.inverse_update)
+                cls.inverse: Any = transforms.attach_hook(cls.inverse, transforms.InvertibleTransform.inverse_update)
         return Transform.__new__(cls)
 
     def __init__(self, keys: KeysCollection, allow_missing_keys: bool = False) -> None:
